@@ -1,16 +1,35 @@
 using MailArchiver.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using MailArchiver.Utilities;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Linq;
 
 namespace MailArchiver.Data
 {
     public class MailArchiverDbContext : DbContext
     {
+        private static readonly ValueComparer<byte[]?> EncryptedBytesComparer = new(
+            (left, right) => ByteArraysEqual(left, right),
+            value => ByteArrayHash(value),
+            value => SnapshotBytes(value));
+
+        private static bool ByteArraysEqual(byte[]? left, byte[]? right)
+            => left == right || (left != null && right != null && left.SequenceEqual(right));
+
+        private static int ByteArrayHash(byte[]? value)
+            => value == null ? 0 : value.Aggregate(17, (current, item) => current * 31 + item);
+
+        private static byte[]? SnapshotBytes(byte[]? value)
+            => value == null ? null : value.ToArray();
+
         public DbSet<MailAccount> MailAccounts { get; set; }
         public DbSet<ArchivedEmail> ArchivedEmails { get; set; }
         public DbSet<EmailAttachment> EmailAttachments { get; set; }
         public DbSet<User> Users { get; set; }
         public DbSet<UserMailAccount> UserMailAccounts { get; set; }
         public DbSet<AccessLog> AccessLogs { get; set; }
+        public DbSet<DeletedEmailMarker> DeletedEmailMarkers { get; set; }
 
         public MailArchiverDbContext(DbContextOptions<MailArchiverDbContext> options)
             : base(options)
@@ -20,6 +39,14 @@ namespace MailArchiver.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            var encryptedStringConverter = new ValueConverter<string?, string?>(
+                v => EmailEncryption.EncryptString(v),
+                v => EmailEncryption.DecryptString(v));
+
+            var encryptedBytesConverter = new ValueConverter<byte[]?, byte[]?>(
+                v => EmailEncryption.EncryptBytes(v),
+                v => EmailEncryption.DecryptBytes(v));
 
             // Schema für PostgreSQL definieren
             modelBuilder.HasDefaultSchema("mail_archiver");
@@ -47,11 +74,18 @@ namespace MailArchiver.Data
 
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.Body)
-                .HasColumnType("text");
+                .HasColumnType("text")
+                .HasConversion(encryptedStringConverter);
 
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.HtmlBody)
-                .HasColumnType("text");
+                .HasColumnType("text")
+                .HasConversion(encryptedStringConverter);
+
+            modelBuilder.Entity<ArchivedEmail>()
+                .Property(e => e.BodySearchText)
+                .HasColumnType("text")
+                .HasDefaultValue(string.Empty);
 
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.MessageId)
@@ -64,16 +98,19 @@ namespace MailArchiver.Data
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.RawHeaders)
                 .HasColumnType("text")
+                .HasConversion(encryptedStringConverter)
                 .IsRequired(false);
 
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.BodyUntruncatedText)
                 .HasColumnType("text")
+                .HasConversion(encryptedStringConverter)
                 .IsRequired(false);
 
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.BodyUntruncatedHtml)
                 .HasColumnType("text")
+                .HasConversion(encryptedStringConverter)
                 .IsRequired(false);
 
             // Indizes NUR auf kleine oder eindeutige Felder setzen, NICHT auf Text-Felder
@@ -85,6 +122,10 @@ namespace MailArchiver.Data
 
             modelBuilder.Entity<ArchivedEmail>()
                 .HasIndex(e => e.MailAccountId);
+
+            modelBuilder.Entity<ArchivedEmail>()
+                .HasIndex(e => new { e.MailAccountId, e.MessageId })
+                .IsUnique();
 
             // Beziehungen
             modelBuilder.Entity<ArchivedEmail>()
@@ -102,7 +143,9 @@ namespace MailArchiver.Data
             // Konfiguration für Bytea (binäre Daten) für Anhänge
             modelBuilder.Entity<EmailAttachment>()
                 .Property(a => a.Content)
-                .HasColumnType("bytea");
+                .HasColumnType("bytea")
+                .HasConversion(encryptedBytesConverter)
+                .Metadata.SetValueComparer(EncryptedBytesComparer);
 
             modelBuilder.Entity<EmailAttachment>()
                 .Property(a => a.FileName)
@@ -111,90 +154,107 @@ namespace MailArchiver.Data
             modelBuilder.Entity<EmailAttachment>()
                 .Property(a => a.ContentType)
                 .HasColumnType("text");
-                
+
             modelBuilder.Entity<EmailAttachment>()
                 .Property(a => a.ContentId)
                 .HasColumnType("text")
                 .IsRequired(false);
-            
+
             // User entity configuration
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
                 .IsUnique();
-                
+
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Email)
                 .IsUnique();
-                
+
             modelBuilder.Entity<User>()
                 .Property(u => u.Username)
                 .HasMaxLength(50);
-                
+
             modelBuilder.Entity<User>()
                 .Property(u => u.Email)
                 .HasMaxLength(100);
-                
+
+            modelBuilder.Entity<User>()
+                .Property(u => u.TwoFactorSecret)
+                .HasColumnType("text")
+                .HasConversion(encryptedStringConverter)
+                .IsRequired(false);
+
             // UserMailAccount entity configuration
             modelBuilder.Entity<UserMailAccount>()
                 .HasIndex(uma => new { uma.UserId, uma.MailAccountId })
                 .IsUnique();
-                
+
             modelBuilder.Entity<UserMailAccount>()
                 .HasOne(uma => uma.User)
                 .WithMany(u => u.UserMailAccounts)
                 .HasForeignKey(uma => uma.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-                
+
             modelBuilder.Entity<UserMailAccount>()
                 .HasOne(uma => uma.MailAccount)
                 .WithMany(ma => ma.UserMailAccounts)
                 .HasForeignKey(uma => uma.MailAccountId)
                 .OnDelete(DeleteBehavior.Cascade);
-                
-                
+
             // Configure Provider enum as string
             modelBuilder.Entity<MailAccount>()
                 .Property(e => e.Provider)
                 .HasConversion<string>()
                 .HasMaxLength(10);
-                
+
+            modelBuilder.Entity<MailAccount>()
+                .Property(e => e.Password)
+                .HasColumnType("text")
+                .HasConversion(encryptedStringConverter)
+                .IsRequired(false);
+
+            modelBuilder.Entity<MailAccount>()
+                .Property(e => e.ClientSecret)
+                .HasColumnType("text")
+                .HasConversion(encryptedStringConverter)
+                .IsRequired(false);
+
             // AccessLog entity configuration
             modelBuilder.Entity<AccessLog>()
                 .Property(a => a.Username)
                 .HasColumnType("text");
-                
+
             modelBuilder.Entity<AccessLog>()
                 .Property(a => a.EmailSubject)
                 .HasColumnType("text")
                 .IsRequired(false);
-                
+
             modelBuilder.Entity<AccessLog>()
                 .Property(a => a.EmailFrom)
                 .HasColumnType("text")
                 .IsRequired(false);
-                
+
             modelBuilder.Entity<AccessLog>()
                 .Property(a => a.SearchParameters)
                 .HasColumnType("text")
                 .IsRequired(false);
-                
+
             modelBuilder.Entity<AccessLog>()
                 .HasIndex(a => a.Timestamp)
                 .HasDatabaseName("IX_AccessLogs_Timestamp");
-                
+
             modelBuilder.Entity<AccessLog>()
                 .HasIndex(a => a.Username)
                 .HasDatabaseName("IX_AccessLogs_Username");
-                
+
             modelBuilder.Entity<AccessLog>()
                 .HasIndex(a => a.Type)
                 .HasDatabaseName("IX_AccessLogs_Type");
-                
+
             // Configure AccessLogType enum as integer
             modelBuilder.Entity<AccessLog>()
                 .Property(a => a.Type)
                 .HasConversion<int>();
-                
+
             // Compliance fields configuration
             modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.ContentHash)
@@ -210,15 +270,50 @@ namespace MailArchiver.Data
                 .HasDefaultValue(false);
 
             // Original body content with null bytes preserved (stored as byte array)
-            modelBuilder.Entity<ArchivedEmail>()
+            var originalBodyTextProperty = modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.OriginalBodyText)
                 .HasColumnType("bytea")
+                .HasConversion(encryptedBytesConverter)
                 .IsRequired(false);
 
-            modelBuilder.Entity<ArchivedEmail>()
+            originalBodyTextProperty.Metadata.SetValueComparer(EncryptedBytesComparer);
+
+            var originalBodyHtmlProperty = modelBuilder.Entity<ArchivedEmail>()
                 .Property(e => e.OriginalBodyHtml)
                 .HasColumnType("bytea")
+                .HasConversion(encryptedBytesConverter)
                 .IsRequired(false);
+
+            originalBodyHtmlProperty.Metadata.SetValueComparer(EncryptedBytesComparer);
+
+
+            modelBuilder.Entity<DeletedEmailMarker>()
+                .Property(e => e.MessageId)
+                .HasColumnType("text")
+                .HasDefaultValue(string.Empty);
+
+            modelBuilder.Entity<DeletedEmailMarker>()
+                .Property(e => e.From)
+                .HasColumnType("text")
+                .HasDefaultValue(string.Empty);
+
+            modelBuilder.Entity<DeletedEmailMarker>()
+                .Property(e => e.To)
+                .HasColumnType("text")
+                .HasDefaultValue(string.Empty);
+
+            modelBuilder.Entity<DeletedEmailMarker>()
+                .Property(e => e.Subject)
+                .HasColumnType("text")
+                .HasDefaultValue(string.Empty);
+
+            modelBuilder.Entity<DeletedEmailMarker>()
+                .HasIndex(e => new { e.MailAccountId, e.MessageId })
+                .HasDatabaseName("IX_DeletedEmailMarkers_MailAccountId_MessageId");
+
+            modelBuilder.Entity<DeletedEmailMarker>()
+                .HasIndex(e => new { e.MailAccountId, e.From, e.To, e.Subject, e.SentDate })
+                .HasDatabaseName("IX_DeletedEmailMarkers_NaturalKey");
         }
     }
 }

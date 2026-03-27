@@ -2456,4 +2456,19 @@
   <data name="DetailsLabel" xml:space="preserve">
     <value>Részletek</value>
   </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>Alapértelmezés szerint ennél a fióknál csak a Beérkezett üzenetek és az Elküldött elemek kerülnek archiválásra.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>A fiók létrejött, de a Beérkezett üzenetek és az Elküldött elemek alapértelmezett mappái nem voltak teljesen felismerhetők (észlelve: {0}). Nyissa meg a szerkesztő oldalt, használja a(z) „{1}” lehetőséget, és állítsa be kézzel a kizárt mappákat.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>A fiók létrejött, de az elérhető mappákat nem sikerült automatikusan betölteni. A fiók letiltva maradt, hogy ne kerüljenek archiválásra nem várt mappák. Nyissa meg a szerkesztő oldalt, használja a(z) „{0}” lehetőséget, és állítsa be kézzel a kizárt mappákat.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>nincs</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Az új fiókok alapértelmezés szerint csak a Beérkezett üzenetek és az Elküldött elemek mappáit archiválják, ha ezek a mappák automatikusan felismerhetők. A mappafelismerés a támogatott nyelvek gyakori szabványos mappaneveit ellenőrzi, a kiválasztott felületnyelvtől függetlenül. Ha a szolgáltató más neveket használ, használja a(z) {0} lehetőséget, és adja hozzá az alábbi mezőben a kizárandó mappákat.</value>
+  </data>
 </root>

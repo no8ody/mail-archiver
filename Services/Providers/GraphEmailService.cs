@@ -86,12 +86,41 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
 
 
 
-        public async Task SyncMailAccountAsync(MailAccount account, string? jobId = null)
+        private bool IsSyncCancellationRequested(string? jobId, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(jobId))
+            {
+                return false;
+            }
+
+            var job = _syncJobService.GetJob(jobId);
+            return job?.Status == SyncJobStatus.Cancelled || job?.CancellationTokenSource?.IsCancellationRequested == true;
+        }
+
+        private void ThrowIfSyncCancellationRequested(string? jobId, CancellationToken cancellationToken)
+        {
+            if (IsSyncCancellationRequested(jobId, cancellationToken))
+            {
+                throw new OperationCanceledException("Sync job was cancelled", cancellationToken);
+            }
+        }
+
+        public async Task SyncMailAccountAsync(MailAccount account, string? jobId = null, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("Starting Graph API sync for M365 account: {AccountName}", account.Name);
 
             try
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
+
                 var graphClient = await CreateGraphClientAsync(account);
                 
                 var processedFolders = 0;
@@ -100,7 +129,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                 var failedEmails = 0;
 
                 // Get all mail folders
-                var folders = await GetAllMailFoldersAsync(graphClient, account.EmailAddress);
+                var folders = await GetAllMailFoldersAsync(graphClient, account.EmailAddress, cancellationToken);
 
                 if (jobId != null)
                 {
@@ -118,17 +147,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                 // Process each folder
                 foreach (var folder in folders)
                 {
-                    // Check if job has been cancelled
-                    if (jobId != null)
-                    {
-                        var job = _syncJobService.GetJob(jobId);
-                        if (job?.Status == SyncJobStatus.Cancelled)
-                        {
-                            _logger.LogInformation("Sync job {JobId} for account {AccountName} has been cancelled", jobId, account.Name);
-                            _syncJobService.CompleteJob(jobId, false, "Job was cancelled");
-                            return;
-                        }
-                    }
+                    ThrowIfSyncCancellationRequested(jobId, cancellationToken);
 
                     try
                     {
@@ -155,7 +174,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                             });
                         }
 
-                        var folderResult = await SyncFolderAsync(graphClient, folder, account, jobId, fullFolderPath);
+                        var folderResult = await SyncFolderAsync(graphClient, folder, account, jobId, fullFolderPath, cancellationToken);
                         processedEmails += folderResult.ProcessedEmails;
                         newEmails += folderResult.NewEmails;
                         failedEmails += folderResult.FailedEmails;
@@ -185,23 +204,22 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                 var deletedEmails = 0;
                 if (account.DeleteAfterDays.HasValue && account.DeleteAfterDays.Value > 0)
                 {
-                    deletedEmails = await DeleteOldEmailsAsync(account);
+                    deletedEmails = await DeleteOldEmailsAsync(account, cancellationToken);
                 }
 
-                // Update lastSync only if no individual email failed
-                if (failedEmails == 0)
+                // Always advance LastSync after a completed folder run so already-seen messages
+                // are not re-imported forever just because a few messages failed.
+                var trackedAccount = await _context.MailAccounts.FindAsync(account.Id);
+                if (trackedAccount != null)
                 {
-                    // Update LastSync using a separate tracked entity to avoid tracking conflicts
-                    var trackedAccount = await _context.MailAccounts.FindAsync(account.Id);
-                    if (trackedAccount != null)
-                    {
-                        trackedAccount.LastSync = DateTime.UtcNow;
-                        await _context.SaveChangesAsync();
-                    }
+                    var nowUtc = DateTime.UtcNow;
+                    trackedAccount.LastSync = nowUtc;
+                    await _context.SaveChangesAsync();
                 }
-                else
+
+                if (failedEmails > 0)
                 {
-                    _logger.LogWarning("Not updating LastSync for account {AccountName} due to {FailedCount} failed emails",
+                    _logger.LogWarning("Completed Graph sync for account {AccountName} with {FailedCount} failed emails. LastSync was still updated to avoid endless reprocessing.",
                         account.Name, failedEmails);
                 }
 
@@ -212,6 +230,21 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                 {
                     _syncJobService.CompleteJob(jobId, true);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Graph sync for account {AccountName} was cancelled", account.Name);
+
+                if (jobId != null)
+                {
+                    if (_syncJobService.GetJob(jobId)?.Status != SyncJobStatus.Cancelled)
+                    {
+                        _syncJobService.CancelJob(jobId);
+                    }
+
+                    _syncJobService.CompleteJob(jobId, false, "Job was cancelled");
+                }
+                throw;
             }
             catch (Exception ex)
             {
@@ -226,7 +259,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
             }
         }
 
-        private async Task<List<MailFolder>> GetAllMailFoldersAsync(GraphServiceClient graphClient, string userPrincipalName)
+        private async Task<List<MailFolder>> GetAllMailFoldersAsync(GraphServiceClient graphClient, string userPrincipalName, CancellationToken cancellationToken = default)
         {
             var folders = new List<MailFolder>();
 
@@ -240,7 +273,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                     requestConfiguration.QueryParameters.Select = new string[] { "id", "displayName", "parentFolderId", "childFolderCount", "totalItemCount" };
                     requestConfiguration.QueryParameters.Top = 250;
                     requestConfiguration.QueryParameters.IncludeHiddenFolders = "true";
-                });
+                }, cancellationToken);
 
                 int folderCount = 0;
                 int pageCount = 0;
@@ -268,7 +301,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                     if (!string.IsNullOrEmpty(response.OdataNextLink))
                     {
                         _logger.LogInformation("Fetching next page of folders...");
-                        response = await graphClient.Users[userPrincipalName].MailFolders.WithUrl(response.OdataNextLink).GetAsync();
+                        response = await graphClient.Users[userPrincipalName].MailFolders.WithUrl(response.OdataNextLink).GetAsync(cancellationToken: cancellationToken);
                     }
                     else
                     {
@@ -287,7 +320,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                         _logger.LogDebug("Getting child folders for: '{FolderName}' (Expected children: {ChildCount})",
                             folder.DisplayName, folder.ChildFolderCount);
                         
-                        var childFolders = await GetChildFoldersAsync(graphClient, userPrincipalName, folder.Id);
+                        var childFolders = await GetChildFoldersAsync(graphClient, userPrincipalName, folder.Id, cancellationToken);
                         folders.AddRange(childFolders);
                         
                         _logger.LogDebug("Added {ChildFolderCount} child folders for '{FolderName}'",
@@ -310,7 +343,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
             return folders;
         }
 
-        private async Task<List<MailFolder>> GetChildFoldersAsync(GraphServiceClient graphClient, string userPrincipalName, string parentFolderId)
+        private async Task<List<MailFolder>> GetChildFoldersAsync(GraphServiceClient graphClient, string userPrincipalName, string parentFolderId, CancellationToken cancellationToken = default)
         {
             var childFolders = new List<MailFolder>();
 
@@ -323,7 +356,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                     requestConfiguration.QueryParameters.Select = new string[] { "id", "displayName", "parentFolderId", "childFolderCount", "totalItemCount" };
                     requestConfiguration.QueryParameters.Top = 250;
                     requestConfiguration.QueryParameters.IncludeHiddenFolders = "true";
-                });
+                }, cancellationToken);
 
                 int childFolderCount = 0;
                 int pageCount = 0;
@@ -351,7 +384,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                     if (!string.IsNullOrEmpty(response.OdataNextLink))
                     {
                         _logger.LogDebug("Fetching next page of child folders for parent {ParentFolderId}...", parentFolderId);
-                        response = await graphClient.Users[userPrincipalName].MailFolders[parentFolderId].ChildFolders.WithUrl(response.OdataNextLink).GetAsync();
+                        response = await graphClient.Users[userPrincipalName].MailFolders[parentFolderId].ChildFolders.WithUrl(response.OdataNextLink).GetAsync(cancellationToken: cancellationToken);
                     }
                     else
                     {
@@ -371,7 +404,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                         _logger.LogDebug("Getting grandchild folders for: '{FolderName}' (Expected children: {ChildCount})",
                             folder.DisplayName, folder.ChildFolderCount);
                         
-                        var grandChildFolders = await GetChildFoldersAsync(graphClient, userPrincipalName, folder.Id);
+                        var grandChildFolders = await GetChildFoldersAsync(graphClient, userPrincipalName, folder.Id, cancellationToken);
                         childFolders.AddRange(grandChildFolders);
                         
                         _logger.LogDebug("Added {GrandChildFolderCount} grandchild folders for '{FolderName}'",
@@ -390,7 +423,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
             return childFolders;
         }
 
-        private async Task<SyncFolderResult> SyncFolderAsync(GraphServiceClient graphClient, MailFolder folder, MailAccount account, string? jobId = null, string? fullFolderPath = null)
+        private async Task<SyncFolderResult> SyncFolderAsync(GraphServiceClient graphClient, MailFolder folder, MailAccount account, string? jobId = null, string? fullFolderPath = null, CancellationToken cancellationToken = default)
         {
             var result = new SyncFolderResult();
 
@@ -402,6 +435,8 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
 
             try
             {
+                ThrowIfSyncCancellationRequested(jobId, cancellationToken);
+
                 bool isOutgoing = IsOutgoingFolder(folder);
                 var lastSync = account.LastSync;
                 
@@ -439,7 +474,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                             "sentDateTime", "receivedDateTime", "hasAttachments", "body", "bodyPreview", "lastModifiedDateTime"
                         };
                         requestConfiguration.QueryParameters.Top = _batchOptions.BatchSize;
-                    });
+                    }, cancellationToken);
                     
                     _logger.LogInformation("Graph API response for folder {FolderName}: {MessageCount} messages returned (filter attempt)", 
                         folder.DisplayName, messagesResponse?.Value?.Count ?? 0);
@@ -456,7 +491,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                             {
                                 requestConfiguration.QueryParameters.Select = new string[] { "id" };
                                 requestConfiguration.QueryParameters.Top = 1;
-                            });
+                            }, cancellationToken);
                             
                             _logger.LogWarning("Diagnostic check for folder {FolderName}: {MessageCount} messages found without filter. " +
                                              "This suggests the date filter might be too restrictive or there's a permission issue.",
@@ -479,7 +514,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                         "id", "internetMessageId", "subject", "from", "sentDateTime", "receivedDateTime", "lastModifiedDateTime"
                                     };
                                     requestConfiguration.QueryParameters.Top = _batchOptions.BatchSize;
-                                });
+                                }, cancellationToken);
                                 
                                 _logger.LogInformation("Permissive filter returned {Count} messages for folder {FolderName}", 
                                     messagesResponse?.Value?.Count ?? 0, folder.DisplayName);
@@ -509,7 +544,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                 "id", "internetMessageId", "subject", "from", "sentDateTime", "receivedDateTime", "lastModifiedDateTime"
                             };
                             requestConfiguration.QueryParameters.Top = _batchOptions.BatchSize;
-                        });
+                        }, cancellationToken);
                         
                         _logger.LogInformation("Second attempt returned {Count} messages for folder {FolderName}", 
                             messagesResponse?.Value?.Count ?? 0, folder.DisplayName);
@@ -529,7 +564,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                     "id", "internetMessageId", "subject", "from", "sentDateTime", "receivedDateTime", "lastModifiedDateTime"
                                 };
                                 requestConfiguration.QueryParameters.Top = _batchOptions.BatchSize;
-                            });
+                            }, cancellationToken);
                             
                             _logger.LogDebug("Third attempt (basic query) succeeded for folder {FolderName}", folder.DisplayName);
                         }
@@ -579,16 +614,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                 break;
                             }
 
-                            // Check if job has been cancelled
-                            if (jobId != null)
-                            {
-                                var job = _syncJobService.GetJob(jobId);
-                                if (job?.Status == SyncJobStatus.Cancelled)
-                                {
-                                    _logger.LogInformation("Sync job {JobId} for account {AccountName} has been cancelled during message processing", jobId, account.Name);
-                                    return result;
-                                }
-                            }
+                            ThrowIfSyncCancellationRequested(jobId, cancellationToken);
 
                             try
                             {
@@ -605,7 +631,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                                 "id", "internetMessageId", "subject", "from", "toRecipients", "ccRecipients", "bccRecipients",
                                                 "sentDateTime", "receivedDateTime", "hasAttachments", "body", "bodyPreview", "lastModifiedDateTime"
                                             };
-                                        });
+                                        }, cancellationToken);
                                     }
                                     catch (Exception ex)
                                     {
@@ -646,7 +672,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                             // Use the configurable pause between batches
                             if (_batchOptions.PauseBetweenBatchesMs > 0)
                             {
-                                await Task.Delay(_batchOptions.PauseBetweenBatchesMs);
+                                await Task.Delay(_batchOptions.PauseBetweenBatchesMs, cancellationToken);
                             }
                             
                             // Force garbage collection after each batch to free memory
@@ -670,28 +696,19 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                             break;
                         }
 
-                        // Check if job has been cancelled
-                        if (jobId != null)
-                        {
-                            var job = _syncJobService.GetJob(jobId);
-                            if (job?.Status == SyncJobStatus.Cancelled)
-                            {
-                                _logger.LogInformation("Sync job {JobId} for account {AccountName} has been cancelled during pagination at page {PageNumber}", jobId, account.Name, paginationCount);
-                                return result;
-                            }
-                        }
+                        ThrowIfSyncCancellationRequested(jobId, cancellationToken);
 
                         // Add a pause between batches to avoid overwhelming the API
                         if (_batchOptions.PauseBetweenBatchesMs > 0)
                         {
-                            await Task.Delay(_batchOptions.PauseBetweenBatchesMs);
+                            await Task.Delay(_batchOptions.PauseBetweenBatchesMs, cancellationToken);
                         }
 
                         _logger.LogInformation("Fetching page {PageNumber} for folder {FolderName} (Total processed so far: {TotalProcessed})", 
                             paginationCount, folder.DisplayName, result.ProcessedEmails);
 
                         // Get next page
-                        messagesResponse = await graphClient.Users[account.EmailAddress].MailFolders[folder.Id].Messages.WithUrl(messagesResponse.OdataNextLink).GetAsync();
+                        messagesResponse = await graphClient.Users[account.EmailAddress].MailFolders[folder.Id].Messages.WithUrl(messagesResponse.OdataNextLink).GetAsync(cancellationToken: cancellationToken);
 
                         if (messagesResponse?.Value != null)
                         {
@@ -729,7 +746,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                                     "id", "internetMessageId", "subject", "from", "toRecipients", "ccRecipients", "bccRecipients",
                                                     "sentDateTime", "receivedDateTime", "hasAttachments", "body", "bodyPreview", "lastModifiedDateTime"
                                                 };
-                                            });
+                                            }, cancellationToken);
                                         }
                                         catch (Exception ex)
                                         {
@@ -1028,6 +1045,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                     HasAttachments = false, // Will be set correctly after checking for attachments
                     Body = body,
                     HtmlBody = htmlBody,
+                    BodySearchText = EmailEncryption.BuildBodySearchText(body, htmlBody),
                     // LEGACY: BodyUntruncated fields are no longer populated for new emails (kept for backward compatibility)
                     // Original body content is now stored in OriginalBody* fields (as byte[]) for both truncation AND null-byte cases
                     BodyUntruncatedText = null,  // Not populated for new emails - use OriginalBodyText instead
@@ -1399,7 +1417,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
         /// </summary>
         /// <param name="account">The M365 mail account</param>
         /// <returns>Number of deleted emails</returns>
-        private async Task<int> DeleteOldEmailsAsync(MailAccount account)
+        private async Task<int> DeleteOldEmailsAsync(MailAccount account, CancellationToken cancellationToken = default)
         {
             if (!account.DeleteAfterDays.HasValue || account.DeleteAfterDays.Value <= 0)
             {
@@ -1417,7 +1435,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                 var graphClient = await CreateGraphClientAsync(account);
 
                 // Get all mail folders
-                var folders = await GetAllMailFoldersAsync(graphClient, account.EmailAddress);
+                var folders = await GetAllMailFoldersAsync(graphClient, account.EmailAddress, cancellationToken);
 
                 _logger.LogInformation("Found {Count} folders for M365 account: {AccountName}", folders.Count, account.Name);
 
@@ -1445,7 +1463,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                             requestConfiguration.QueryParameters.Filter = filter;
                             requestConfiguration.QueryParameters.Select = new string[] { "id", "internetMessageId", "subject", "receivedDateTime" };
                             requestConfiguration.QueryParameters.Top = _batchOptions.BatchSize;
-                        });
+                        }, cancellationToken);
 
                         var totalOldEmailsFound = 0;
                         var totalProcessedInFolder = 0;
@@ -1512,7 +1530,7 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                     {
                                         try
                                         {
-                                            await graphClient.Users[account.EmailAddress].Messages[messageId].DeleteAsync();
+                                            await graphClient.Users[account.EmailAddress].Messages[messageId].DeleteAsync(cancellationToken: cancellationToken);
                                             deletedCount++;
                                             totalProcessedInFolder++;
                                             _logger.LogDebug("Successfully deleted email {MessageId} from folder {FolderName}",
@@ -1544,11 +1562,11 @@ private async Task<GraphServiceClient> CreateGraphClientAsync(MailAccount accoun
                                 // Add a pause between pages to avoid overwhelming the API
                                 if (_batchOptions.PauseBetweenBatchesMs > 0)
                                 {
-                                    await Task.Delay(_batchOptions.PauseBetweenBatchesMs);
+                                    await Task.Delay(_batchOptions.PauseBetweenBatchesMs, cancellationToken);
                                 }
 
                                 // Get next page
-                                messagesResponse = await graphClient.Users[account.EmailAddress].MailFolders[folder.Id].Messages.WithUrl(messagesResponse.OdataNextLink).GetAsync();
+                                messagesResponse = await graphClient.Users[account.EmailAddress].MailFolders[folder.Id].Messages.WithUrl(messagesResponse.OdataNextLink).GetAsync(cancellationToken: cancellationToken);
                             }
                             else
                             {

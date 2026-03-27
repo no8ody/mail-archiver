@@ -23,6 +23,7 @@ namespace MailArchiver.Services.Core
         private readonly ILogger<EmailCoreService> _logger;
         private readonly DateTimeHelper _dateTimeHelper;
         private readonly BatchOperationOptions _batchOptions;
+        private bool? _archivedEmailsHasBodySearchTextColumn;
 
         // Constants for HTML truncation
         private static readonly string TruncationNotice = @"
@@ -75,6 +76,11 @@ namespace MailArchiver.Services.Core
 
             try
             {
+                if (EmailEncryption.IsEnabled)
+                {
+                    return await SearchEmailsEFAsync(searchTerm, fromDate, toDate, accountId, folderName, isOutgoing, skip, take, allowedAccountIds);
+                }
+
                 return await SearchEmailsOptimizedAsync(searchTerm, fromDate, toDate, accountId, folderName, isOutgoing, skip, take, allowedAccountIds, sortBy, sortOrder);
             }
             catch (Exception ex)
@@ -486,106 +492,204 @@ namespace MailArchiver.Services.Core
             if (!string.IsNullOrEmpty(folderName))
                 baseQuery = baseQuery.Where(e => e.FolderName == folderName);
 
-            IQueryable<ArchivedEmail> searchQuery = baseQuery;
-            if (!string.IsNullOrEmpty(searchTerm))
+            var hasBodySearchTextColumn = await ArchivedEmailsHasBodySearchTextColumnAsync();
+
+            IQueryable<ArchivedEmail> summaryQuery;
+            if (hasBodySearchTextColumn)
             {
-                var (tsQuery, phrases, fieldSearches, fieldPhrases) = ParseSearchTermForTsQuery(searchTerm);
-
-                if (!string.IsNullOrEmpty(tsQuery))
-                {
-                    // Split terms and strip the ':*' suffix (used for prefix matching in PostgreSQL full-text search)
-                    // The fallback ILike search already supports partial matching via %wildcard%
-                    var words = tsQuery.Split('&', StringSplitOptions.RemoveEmptyEntries)
-                                      .Select(w => w.Trim().Replace("''", "'").Replace(":*", ""))
-                                      .ToList();
-
-                    foreach (var word in words)
+                summaryQuery = baseQuery
+                    .OrderByDescending(e => e.SentDate)
+                    .Select(e => new ArchivedEmail
                     {
-                        var escapedWord = word.Replace("'", "''");
-                        searchQuery = searchQuery.Where(e =>
-                            EF.Functions.ILike(e.Subject, $"%{escapedWord}%") ||
-                            EF.Functions.ILike(e.From, $"%{escapedWord}%") ||
-                            EF.Functions.ILike(e.To, $"%{escapedWord}%") ||
-                            EF.Functions.ILike(e.Body, $"%{escapedWord}%") ||
-                            EF.Functions.ILike(e.Cc, $"%{escapedWord}%") ||
-                            EF.Functions.ILike(e.Bcc, $"%{escapedWord}%")
-                        );
-                    }
-                }
-
-                foreach (var phrase in phrases)
-                {
-                    searchQuery = searchQuery.Where(e =>
-                        (e.Subject != null && e.Subject.ToLower().Contains(phrase.ToLower())) ||
-                        (e.From != null && e.From.ToLower().Contains(phrase.ToLower())) ||
-                        (e.To != null && e.To.ToLower().Contains(phrase.ToLower())) ||
-                        (e.Body != null && e.Body.ToLower().Contains(phrase.ToLower())) ||
-                        (e.Cc != null && e.Cc.ToLower().Contains(phrase.ToLower())) ||
-                        (e.Bcc != null && e.Bcc.ToLower().Contains(phrase.ToLower()))
-                    );
-                }
-
-                foreach (var fieldSearch in fieldSearches)
-                {
-                    var field = fieldSearch.Key;
-                    var terms = fieldSearch.Value;
-
-                    foreach (var term in terms)
-                    {
-                        var escapedTerm = term.Replace("'", "''");
-                        switch (field.ToLower())
+                        Id = e.Id,
+                        MailAccountId = e.MailAccountId,
+                        MessageId = e.MessageId,
+                        Subject = e.Subject,
+                        From = e.From,
+                        To = e.To,
+                        Cc = e.Cc,
+                        Bcc = e.Bcc,
+                        BodySearchText = e.BodySearchText,
+                        SentDate = e.SentDate,
+                        ReceivedDate = e.ReceivedDate,
+                        IsOutgoing = e.IsOutgoing,
+                        HasAttachments = e.HasAttachments,
+                        FolderName = e.FolderName,
+                        IsLocked = e.IsLocked,
+                        MailAccount = new MailAccount
                         {
-                            case "subject":
-                                searchQuery = searchQuery.Where(e => e.Subject != null && EF.Functions.ILike(e.Subject, $"%{escapedTerm}%"));
-                                break;
-                            case "body":
-                                searchQuery = searchQuery.Where(e => e.Body != null && EF.Functions.ILike(e.Body, $"%{escapedTerm}%"));
-                                break;
-                            case "from":
-                                searchQuery = searchQuery.Where(e => e.From != null && EF.Functions.ILike(e.From, $"%{escapedTerm}%"));
-                                break;
-                            case "to":
-                                searchQuery = searchQuery.Where(e => e.To != null && EF.Functions.ILike(e.To, $"%{escapedTerm}%"));
-                                break;
+                            Id = e.MailAccount.Id,
+                            Name = e.MailAccount.Name,
+                            EmailAddress = e.MailAccount.EmailAddress
                         }
-                    }
+                    });
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    _logger.LogWarning("BodySearchText column is missing in ArchivedEmails. Body search is temporarily disabled for encrypted search.");
                 }
 
-                foreach (var fieldPhrase in fieldPhrases)
-                {
-                    var field = fieldPhrase.Key;
-                    var fieldPhrasesList = fieldPhrase.Value;
-
-                    foreach (var phrase in fieldPhrasesList)
+                summaryQuery = baseQuery
+                    .OrderByDescending(e => e.SentDate)
+                    .Select(e => new ArchivedEmail
                     {
-                        switch (field.ToLower())
+                        Id = e.Id,
+                        MailAccountId = e.MailAccountId,
+                        MessageId = e.MessageId,
+                        Subject = e.Subject,
+                        From = e.From,
+                        To = e.To,
+                        Cc = e.Cc,
+                        Bcc = e.Bcc,
+                        SentDate = e.SentDate,
+                        ReceivedDate = e.ReceivedDate,
+                        IsOutgoing = e.IsOutgoing,
+                        HasAttachments = e.HasAttachments,
+                        FolderName = e.FolderName,
+                        IsLocked = e.IsLocked,
+                        MailAccount = new MailAccount
                         {
-                            case "subject":
-                                searchQuery = searchQuery.Where(e => e.Subject != null && e.Subject.ToLower().Contains(phrase.ToLower()));
-                                break;
-                            case "body":
-                                searchQuery = searchQuery.Where(e => e.Body != null && e.Body.ToLower().Contains(phrase.ToLower()));
-                                break;
-                            case "from":
-                                searchQuery = searchQuery.Where(e => e.From != null && e.From.ToLower().Contains(phrase.ToLower()));
-                                break;
-                            case "to":
-                                searchQuery = searchQuery.Where(e => e.To != null && e.To.ToLower().Contains(phrase.ToLower()));
-                                break;
+                            Id = e.MailAccount.Id,
+                            Name = e.MailAccount.Name,
+                            EmailAddress = e.MailAccount.EmailAddress
                         }
-                    }
+                    });
+            }
+
+            if (string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var totalCount = await summaryQuery.CountAsync();
+                var pagedResults = await summaryQuery
+                    .Skip(skip)
+                    .Take(take)
+                    .ToListAsync();
+
+                return (pagedResults, totalCount);
+            }
+
+            var candidates = await summaryQuery.ToListAsync();
+            var filtered = ApplyEncryptedSearch(candidates, searchTerm).ToList();
+            return (filtered.Skip(skip).Take(take).ToList(), filtered.Count);
+        }
+
+        private async Task<bool> ArchivedEmailsHasBodySearchTextColumnAsync()
+        {
+            if (_archivedEmailsHasBodySearchTextColumn.HasValue)
+                return _archivedEmailsHasBodySearchTextColumn.Value;
+
+            try
+            {
+                using var connection = new Npgsql.NpgsqlConnection(_context.Database.GetConnectionString());
+                await connection.OpenAsync();
+
+                const string sql = @"
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'mail_archiver'
+                          AND table_name = 'ArchivedEmails'
+                          AND column_name = 'BodySearchText'
+                    );";
+
+                using var command = new Npgsql.NpgsqlCommand(sql, connection);
+                var result = await command.ExecuteScalarAsync();
+                _archivedEmailsHasBodySearchTextColumn = result is bool exists && exists;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to determine whether BodySearchText exists. Falling back to a conservative assumption.");
+                _archivedEmailsHasBodySearchTextColumn = false;
+            }
+
+            return _archivedEmailsHasBodySearchTextColumn.Value;
+        }
+
+        private IEnumerable<ArchivedEmail> ApplyEncryptedSearch(IEnumerable<ArchivedEmail> emails, string searchTerm)
+        {
+            var (tsQuery, phrases, fieldSearches, fieldPhrases) = ParseSearchTermForTsQuery(searchTerm);
+
+            var words = string.IsNullOrWhiteSpace(tsQuery)
+                ? new List<string>()
+                : tsQuery.Split('&', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(w => w.Trim().Replace("''", "'").Replace(":*", string.Empty))
+                    .Where(w => !string.IsNullOrWhiteSpace(w))
+                    .ToList();
+
+            foreach (var email in emails)
+            {
+                if (MatchesEncryptedSearch(email, words, phrases, fieldSearches, fieldPhrases))
+                    yield return email;
+            }
+        }
+
+        private bool MatchesEncryptedSearch(
+            ArchivedEmail email,
+            List<string> words,
+            List<string> phrases,
+            Dictionary<string, List<string>> fieldSearches,
+            Dictionary<string, List<string>> fieldPhrases)
+        {
+            foreach (var word in words)
+            {
+                if (!MatchesAnyField(email, word))
+                    return false;
+            }
+
+            foreach (var phrase in phrases)
+            {
+                if (!MatchesAnyField(email, phrase))
+                    return false;
+            }
+
+            foreach (var fieldSearch in fieldSearches)
+            {
+                foreach (var term in fieldSearch.Value)
+                {
+                    if (!MatchesField(email, fieldSearch.Key, term))
+                        return false;
                 }
             }
 
-            var totalCount = await searchQuery.CountAsync();
-            var emails = await searchQuery
-                .Include(e => e.MailAccount)
-                .OrderByDescending(e => e.SentDate)
-                .Skip(skip)
-                .Take(take)
-                .ToListAsync();
+            foreach (var fieldPhrase in fieldPhrases)
+            {
+                foreach (var phrase in fieldPhrase.Value)
+                {
+                    if (!MatchesField(email, fieldPhrase.Key, phrase))
+                        return false;
+                }
+            }
 
-            return (emails, totalCount);
+            return true;
+        }
+
+        private bool MatchesAnyField(ArchivedEmail email, string term)
+        {
+            return ContainsInsensitive(email.Subject, term)
+                   || ContainsInsensitive(email.From, term)
+                   || ContainsInsensitive(email.To, term)
+                   || ContainsInsensitive(email.BodySearchText, term)
+                   || ContainsInsensitive(email.Cc, term)
+                   || ContainsInsensitive(email.Bcc, term);
+        }
+
+        private bool MatchesField(ArchivedEmail email, string field, string term)
+        {
+            return field.ToLowerInvariant() switch
+            {
+                "subject" => ContainsInsensitive(email.Subject, term),
+                "body" => ContainsInsensitive(email.BodySearchText, term),
+                "from" => ContainsInsensitive(email.From, term),
+                "to" => ContainsInsensitive(email.To, term),
+                _ => false
+            };
+        }
+
+        private static bool ContainsInsensitive(string? source, string term)
+        {
+            return !string.IsNullOrEmpty(source)
+                && source.Contains(term, StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion
@@ -969,8 +1073,24 @@ namespace MailArchiver.Services.Core
                 .ToListAsync();
 
             model.RecentEmails = await _context.ArchivedEmails
-                .Include(e => e.MailAccount)
+                .AsNoTracking()
                 .OrderByDescending(e => e.SentDate)
+                .Select(e => new ArchivedEmail
+                {
+                    Id = e.Id,
+                    Subject = e.Subject,
+                    From = e.From,
+                    To = e.To,
+                    SentDate = e.SentDate,
+                    IsOutgoing = e.IsOutgoing,
+                    MailAccountId = e.MailAccountId,
+                    MailAccount = new MailAccount
+                    {
+                        Id = e.MailAccount.Id,
+                        Name = e.MailAccount.Name,
+                        EmailAddress = e.MailAccount.EmailAddress
+                    }
+                })
                 .Take(10)
                 .ToListAsync();
 
@@ -1017,84 +1137,67 @@ namespace MailArchiver.Services.Core
 
         public async Task<bool> ArchiveEmailAsync(MailAccount account, MimeMessage message, bool isOutgoing, string? folderName = null)
         {
-            // Extract date with fallback handling for malformed Date headers
             var emailDate = ExtractEmailDate(message);
+            var convertedSentDate = _dateTimeHelper.ConvertToDisplayTimeZone(emailDate);
+            var rawHeaders = ExtractRawHeaders(message);
+            if (!string.IsNullOrEmpty(rawHeaders))
+            {
+                rawHeaders = CleanText(rawHeaders);
+            }
 
-            // Extract raw headers for forensic/compliance purposes
-                var rawHeaders = ExtractRawHeaders(message);
-                
-                // Clean raw headers to remove null bytes (prevent PostgreSQL UTF-8 errors)
-                if (!string.IsNullOrEmpty(rawHeaders))
-                {
-                    rawHeaders = CleanText(rawHeaders);
-                }
+            var cleanFolderName = CleanText(folderName ?? string.Empty);
+            var cleanMessageId = CleanText(!string.IsNullOrWhiteSpace(message.MessageId)
+                ? message.MessageId.Trim()
+                : EmailEncryption.BuildFallbackMessageId(message, emailDate));
 
-                // Check if this email is already archived
-            var messageId = message.MessageId ??
-                $"{message.From}-{message.To}-{message.Subject}-{emailDate.Ticks}";
+            var fromAddress = message.From?.FirstOrDefault() as MailboxAddress;
+            var from = CleanText(fromAddress?.Address ?? string.Empty);
+            var toAddresses = message.To?.Select(m => m as MailboxAddress).Where(m => m != null).Select(m => m!.Address) ?? new List<string>();
+            var to = CleanText(string.Join(", ", toAddresses));
+            var subject = CleanText(message.Subject ?? "(No Subject)");
 
             var existingEmail = await _context.ArchivedEmails
-                .FirstOrDefaultAsync(e => e.MessageId == messageId && e.MailAccountId == account.Id);
+                .Where(e => e.MailAccountId == account.Id)
+                .Where(e => e.MessageId == cleanMessageId ||
+                            (e.From == from && e.To == to && e.Subject == subject &&
+                             e.SentDate >= convertedSentDate.AddSeconds(-2) &&
+                             e.SentDate <= convertedSentDate.AddSeconds(2)))
+                .OrderBy(e => e.Id)
+                .FirstOrDefaultAsync();
 
             if (existingEmail != null)
             {
-                // E-Mail existiert bereits, prüfen ob der Ordner geändert wurde
-                var cleanFolderName = CleanText(folderName ?? string.Empty);
-                if (existingEmail.FolderName != cleanFolderName)
+                if (!string.Equals(existingEmail.FolderName, cleanFolderName, StringComparison.Ordinal))
                 {
-                    // Ordner hat sich geändert, aktualisieren
-                    var oldFolder = existingEmail.FolderName;
                     existingEmail.FolderName = cleanFolderName;
+                    existingEmail.BodySearchText = EmailEncryption.BuildBodySearchText(existingEmail.Body, existingEmail.HtmlBody);
                     await _context.SaveChangesAsync();
-                    _logger.LogInformation("Updated folder for existing email: {Subject} from '{OldFolder}' to '{NewFolder}'",
-                        existingEmail.Subject, oldFolder, cleanFolderName);
                 }
-                return false; // E-Mail existiert bereits
+                return false;
             }
 
             try
             {
-                // Convert timestamp to configured display timezone
-                var convertedSentDate = _dateTimeHelper.ConvertToDisplayTimeZone(emailDate);
-                var subject = CleanText(message.Subject ?? "(No Subject)");
-                // Extract email address from From field
-                var fromAddress = message.From?.FirstOrDefault() as MailboxAddress;
-                var from = CleanText(fromAddress?.Address ?? string.Empty);
-                // Extract email addresses from To field
-                var toAddresses = message.To?.Select(m => m as MailboxAddress).Where(m => m != null).Select(m => m.Address) ?? new List<string>();
-                var to = CleanText(string.Join(", ", toAddresses));
-                // Extract email addresses from Cc field
-                var ccAddresses = message.Cc?.Select(m => m as MailboxAddress).Where(m => m != null).Select(m => m.Address) ?? new List<string>();
+                // Extract email addresses from cc and bcc fields
+                var ccAddresses = message.Cc?.Select(m => m as MailboxAddress).Where(m => m != null).Select(m => m!.Address) ?? new List<string>();
                 var cc = CleanText(string.Join(", ", ccAddresses));
-                // Extract email addresses from Bcc field
-                var bccAddresses = message.Bcc?.Select(m => m as MailboxAddress).Where(m => m != null).Select(m => m.Address) ?? new List<string>();
+                var bccAddresses = message.Bcc?.Select(m => m as MailboxAddress).Where(m => m != null).Select(m => m!.Address) ?? new List<string>();
                 var bcc = CleanText(string.Join(", ", bccAddresses));
 
-                // Extract text and HTML body preserving original encoding
-                var body = string.Empty;
-                var htmlBody = string.Empty;
-
-                // Store raw body content BEFORE cleaning to detect null bytes
-                // This preserves the original content including any null bytes for faithful export
                 var rawTextBody = message.TextBody;
                 var rawHtmlBody = message.HtmlBody;
-                
-                // Check if original bodies contain null bytes - if so, store them as byte arrays
                 var hasNullBytesInText = !string.IsNullOrEmpty(rawTextBody) && rawTextBody.Contains('\0');
                 var hasNullBytesInHtml = !string.IsNullOrEmpty(rawHtmlBody) && rawHtmlBody.Contains('\0');
-                
-                // Keep references to the original unmodified body content
-                // These will be stored in OriginalBodyText/Html (as byte[]) if they differ from the stored version
-                // IMPORTANT: Clean the original bodies to remove null bytes for the cleaned version
+
                 var originalTextBody = !string.IsNullOrEmpty(rawTextBody) ? CleanText(rawTextBody) : null;
                 var originalHtmlBody = !string.IsNullOrEmpty(rawHtmlBody) ? CleanText(rawHtmlBody) : null;
 
-                // Handle text body - use original content directly to preserve encoding
+                var body = string.Empty;
+                var htmlBody = string.Empty;
+
                 if (!string.IsNullOrEmpty(message.TextBody))
                 {
                     var cleanedTextBody = CleanText(message.TextBody);
-                    // Check if text body needs truncation for tsvector compatibility
-                    // Set to 500KB to ensure total of all fields stays under 1MB tsvector limit
                     if (Encoding.UTF8.GetByteCount(cleanedTextBody) > 500_000)
                     {
                         body = TruncateTextForStorage(cleanedTextBody, 500_000);
@@ -1106,91 +1209,56 @@ namespace MailArchiver.Services.Core
                 }
                 else if (!string.IsNullOrEmpty(message.HtmlBody))
                 {
-                    // If no TextBody, try to extract text from HTML body
-                    // For BodyUntruncatedText, the original source is HtmlBody in this case
                     originalTextBody = message.HtmlBody;
                     var cleanedHtmlAsText = CleanText(message.HtmlBody);
-                    // Check if HTML-as-text body needs truncation for tsvector compatibility
-                    // Set to 500KB to ensure total of all fields stays under 1MB tsvector limit
-                    if (Encoding.UTF8.GetByteCount(cleanedHtmlAsText) > 500_000)
-                    {
-                        body = TruncateTextForStorage(cleanedHtmlAsText, 500_000);
-                    }
-                    else
-                    {
-                        body = cleanedHtmlAsText;
-                    }
+                    body = Encoding.UTF8.GetByteCount(cleanedHtmlAsText) > 500_000
+                        ? TruncateTextForStorage(cleanedHtmlAsText, 500_000)
+                        : cleanedHtmlAsText;
                 }
 
-                // Handle HTML body - preserve original encoding (keep cid: references for inline images)
                 if (!string.IsNullOrEmpty(message.HtmlBody))
                 {
-                    // Keep the original HTML body with cid: references
                     htmlBody = CleanText(message.HtmlBody);
-
-                    // Check if HTML body will be truncated
-                    if (htmlBody.Length > 1_000_000)
+                    if (Encoding.UTF8.GetByteCount(htmlBody) > MaxHtmlSizeBytes)
                     {
                         htmlBody = CleanHtmlForStorage(htmlBody);
                     }
                 }
 
-                var cleanMessageId = CleanText(messageId);
-                var cleanFolderName = CleanText(folderName ?? string.Empty);
+                subject = TruncateFieldForTsvector(subject, 100_000);
+                from = TruncateFieldForTsvector(from, 50_000);
+                to = TruncateFieldForTsvector(to, 50_000);
+                cc = TruncateFieldForTsvector(cc, 50_000);
+                bcc = TruncateFieldForTsvector(bcc, 50_000);
 
-                // Ensure individual fields don't exceed reasonable limits for tsvector
-                // This prevents tsvector size errors when all fields are concatenated
-                subject = TruncateFieldForTsvector(subject, 50_000); // ~50KB for subject
-                from = TruncateFieldForTsvector(from, 10_000); // ~10KB for from
-                to = TruncateFieldForTsvector(to, 50_000); // ~50KB for to (can be many recipients)
-                cc = TruncateFieldForTsvector(cc, 50_000); // ~50KB for cc
-                bcc = TruncateFieldForTsvector(bcc, 50_000); // ~50KB for bcc
-                                                             // Body already truncated above to 500KB
-
-                // Final safety check: ensure total size for tsvector doesn't exceed limit
                 var totalTsvectorSize = Encoding.UTF8.GetByteCount(subject) +
                                        Encoding.UTF8.GetByteCount(body) +
                                        Encoding.UTF8.GetByteCount(from) +
                                        Encoding.UTF8.GetByteCount(to) +
                                        Encoding.UTF8.GetByteCount(cc) +
                                        Encoding.UTF8.GetByteCount(bcc);
-
-                // PostgreSQL tsvector max is ~1MB (1048575 bytes), use 900KB as safe limit
                 const int maxTsvectorSize = 900_000;
                 if (totalTsvectorSize > maxTsvectorSize)
                 {
-                    _logger.LogWarning("Email fields exceed tsvector limit ({TotalSize} > {MaxSize}), truncating body further",
-                        totalTsvectorSize, maxTsvectorSize);
-
-                    // Calculate how much we need to reduce the body
                     var otherFieldsSize = totalTsvectorSize - Encoding.UTF8.GetByteCount(body);
-                    var maxBodySize = maxTsvectorSize - otherFieldsSize - 10_000; // 10KB safety buffer
-
+                    var maxBodySize = maxTsvectorSize - otherFieldsSize - 10_000;
                     if (maxBodySize > 0 && Encoding.UTF8.GetByteCount(body) > maxBodySize)
                     {
                         body = TruncateTextForStorage(body, maxBodySize);
                     }
                     else if (maxBodySize <= 0)
                     {
-                        // Other fields alone exceed limit, truncate body completely
-                        _logger.LogError("Other email fields alone exceed tsvector limit, body will be saved as attachment only");
                         body = "[Body too large - saved as attachment]";
                     }
                 }
 
-                // Sammle ALLE Anhänge einschließlich inline Images
                 var allAttachments = new List<MimePart>();
                 CollectAllAttachments(message.Body, allAttachments);
 
-                // Determine if the email is outgoing by comparing the From address with the account's email address
                 bool isOutgoingEmail = !string.IsNullOrEmpty(from) &&
                                       !string.IsNullOrEmpty(account.EmailAddress) &&
                                       from.Equals(account.EmailAddress, StringComparison.OrdinalIgnoreCase);
-
-                // Additionally check if the folder indicates outgoing mail
                 bool isOutgoingFolder = IsOutgoingFolderByName(folderName);
-
-                // Additionally check if the folder is a drafts folder to exclude it from outgoing emails
                 bool isDraftsFolder = IsDraftsFolder(folderName);
 
                 var archivedEmail = new ArchivedEmail
@@ -1208,23 +1276,18 @@ namespace MailArchiver.Services.Core
                     HasAttachments = allAttachments.Any(),
                     Body = body,
                     HtmlBody = htmlBody,
-                    // LEGACY: BodyUntruncated fields are no longer populated for new emails (kept for backward compatibility)
-                    // Original body content is now stored in OriginalBody* fields (as byte[]) for both truncation AND null-byte cases
-                    BodyUntruncatedText = null,  // Not populated for new emails - use OriginalBodyText instead
-                    BodyUntruncatedHtml = null,  // Not populated for new emails - use OriginalBodyHtml instead
-                    // Store original body as byte array for faithful export/restore
-                    // Populated when: (1) original contained null bytes, OR (2) original was truncated
-                    OriginalBodyText = (hasNullBytesInText || (!string.IsNullOrEmpty(originalTextBody) && originalTextBody != body)) 
+                    BodySearchText = EmailEncryption.BuildBodySearchText(body, htmlBody),
+                    BodyUntruncatedText = null,
+                    BodyUntruncatedHtml = null,
+                    OriginalBodyText = (hasNullBytesInText || (!string.IsNullOrEmpty(originalTextBody) && originalTextBody != body))
                         ? Encoding.UTF8.GetBytes(hasNullBytesInText ? rawTextBody! : originalTextBody!) : null,
-                    OriginalBodyHtml = (hasNullBytesInHtml || (!string.IsNullOrEmpty(originalHtmlBody) && originalHtmlBody != htmlBody)) 
+                    OriginalBodyHtml = (hasNullBytesInHtml || (!string.IsNullOrEmpty(originalHtmlBody) && originalHtmlBody != htmlBody))
                         ? Encoding.UTF8.GetBytes(hasNullBytesInHtml ? rawHtmlBody! : originalHtmlBody!) : null,
                     FolderName = cleanFolderName,
-                    RawHeaders = rawHeaders, // Store raw headers for forensic/compliance purposes
-                    Attachments = new List<EmailAttachment>() // Initialize collection for hash calculation
+                    RawHeaders = rawHeaders,
+                    Attachments = new List<EmailAttachment>()
                 };
 
-                // CRITICAL: Prepare attachments BEFORE calculating hash
-                // This ensures the hash includes the attachment content
                 var emailAttachments = new List<EmailAttachment>();
                 if (allAttachments.Any())
                 {
@@ -1256,21 +1319,17 @@ namespace MailArchiver.Services.Core
                                 }
                             }
 
-                            var cleanFileName = CleanText(fileName);
-                            var contentType = CleanText(attachment.ContentType?.MimeType ?? "application/octet-stream");
-                            var contentId = !string.IsNullOrEmpty(attachment.ContentId) ? attachment.ContentId.Trim() : null;
-
                             var emailAttachment = new EmailAttachment
                             {
-                                FileName = cleanFileName,
-                                ContentType = contentType,
-                                ContentId = contentId,
+                                FileName = CleanText(fileName),
+                                ContentType = CleanText(attachment.ContentType?.MimeType ?? "application/octet-stream"),
+                                ContentId = !string.IsNullOrEmpty(attachment.ContentId) ? attachment.ContentId.Trim() : null,
                                 Content = ms.ToArray(),
                                 Size = ms.Length
                             };
 
                             emailAttachments.Add(emailAttachment);
-                            archivedEmail.Attachments.Add(emailAttachment); // Add to collection for hash calculation
+                            archivedEmail.Attachments.Add(emailAttachment);
                         }
                         catch (Exception ex)
                         {
@@ -1284,16 +1343,17 @@ namespace MailArchiver.Services.Core
                 {
                     _context.ArchivedEmails.Add(archivedEmail);
                     await _context.SaveChangesAsync();
-
-                    // Attachments are already saved via EF relationship (cascade)
                     _logger.LogInformation("Successfully saved email with {Count} attachments", emailAttachments.Count);
-
                     _logger.LogInformation(
                         "Archived email: {Subject}, From: {From}, To: {To}, Account: {AccountName}, Attachments: {AttachmentCount}, OriginalPreserved: {OriginalPreserved}",
                         archivedEmail.Subject, archivedEmail.From, archivedEmail.To, account.Name, allAttachments.Count,
-                        archivedEmail.BodyUntruncatedText != null || archivedEmail.BodyUntruncatedHtml != null ? "Yes" : "No");
-
-                    return true; // Neue E-Mail erfolgreich archiviert
+                        archivedEmail.OriginalBodyText != null || archivedEmail.OriginalBodyHtml != null ? "Yes" : "No");
+                    return true;
+                }
+                catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("IX_ArchivedEmails_MailAccountId_MessageId") == true || ex.InnerException?.Message?.Contains("duplicate key value") == true)
+                {
+                    _logger.LogInformation("Duplicate email prevented by database constraint: {MessageId}", cleanMessageId);
+                    return false;
                 }
                 catch (Exception ex)
                 {

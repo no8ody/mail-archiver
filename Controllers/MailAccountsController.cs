@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Localization;
 
 using MailArchiver.Attributes;
+using MailArchiver.Utilities;
 
 namespace MailArchiver.Controllers
 {
@@ -69,34 +70,62 @@ namespace MailArchiver.Controllers
 
         private async Task<bool> HasAccessToAccountAsync(int accountId)
         {
-            // Use the authentication service to get user info properly
+            var accessibleAccountsQuery = GetAccessibleMailAccountsQuery();
+            var hasAccess = await accessibleAccountsQuery.AnyAsync(ma => ma.Id == accountId);
+            _logger.LogInformation("Access check for account {AccountId}: {HasAccess}", accountId, hasAccess);
+            return hasAccess;
+        }
+
+        private IQueryable<MailAccount> GetAccessibleMailAccountsQuery()
+        {
             var authService = HttpContext.RequestServices.GetService<MailArchiver.Services.IAuthenticationService>();
-            var currentUsername = authService.GetCurrentUserDisplayName(HttpContext);
+            var currentUsername = authService.GetCurrentUserDisplayName(HttpContext) ?? string.Empty;
+            var normalizedUsername = currentUsername.ToLowerInvariant();
             var isAdmin = authService.IsCurrentUserAdmin(HttpContext);
             var isSelfManager = authService.IsCurrentUserSelfManager(HttpContext);
 
-            _logger.LogInformation("HasAccessToAccountAsync - Current username: {Username}, IsAdmin: {IsAdmin}, IsSelfManager: {IsSelfManager}", 
-                currentUsername, isAdmin, isSelfManager);
-
-            // Admin users have access to all accounts
             if (isAdmin)
             {
-                _logger.LogInformation("User is admin, granting access to account {AccountId}", accountId);
-                return true;
+                return _context.MailAccounts;
             }
 
-            // SelfManager users have access only to assigned accounts
             if (isSelfManager)
             {
-                var hasAccess = await _context.MailAccounts
-                    .AnyAsync(ma => ma.Id == accountId && ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
-                _logger.LogInformation("User is SelfManager, access to account {AccountId}: {HasAccess}", accountId, hasAccess);
-                return hasAccess;
+                return _context.MailAccounts
+                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == normalizedUsername));
             }
 
-            // Other users have no access
-            _logger.LogInformation("User has no special permissions, denying access to account {AccountId}", accountId);
-            return false;
+            return _context.MailAccounts.Where(ma => false);
+        }
+
+        private async Task<List<MailAccount>> GetAccessibleEnabledAccountsAsync()
+        {
+            return await GetAccessibleMailAccountsQuery()
+                .Where(a => a.IsEnabled)
+                .OrderBy(a => a.Name)
+                .ToListAsync();
+        }
+
+        private static void PopulateAccessibleAccounts(MBoxImportViewModel model, IEnumerable<MailAccount> accounts)
+        {
+            var accountList = accounts.ToList();
+            model.AvailableAccounts = accountList.Select(a => new SelectListItem
+            {
+                Value = a.Id.ToString(),
+                Text = $"{a.Name} ({a.EmailAddress})",
+                Selected = a.Id == model.TargetAccountId
+            }).ToList();
+            model.AccountProviders = accountList.ToDictionary(a => a.Id, a => a.Provider);
+        }
+
+        private static void PopulateAccessibleAccounts(EmlImportViewModel model, IEnumerable<MailAccount> accounts)
+        {
+            model.AvailableAccounts = accounts.Select(a => new SelectListItem
+            {
+                Value = a.Id.ToString(),
+                Text = $"{a.Name} ({a.EmailAddress})",
+                Selected = a.Id == model.TargetAccountId
+            }).ToList();
         }
 
         // GET: MailAccounts
@@ -123,7 +152,7 @@ namespace MailArchiver.Controllers
             {
                 _logger.LogInformation("User is SelfManager, showing only assigned accounts");
                 mailAccountsQuery = _context.MailAccounts
-                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
+                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == (currentUsername ?? string.Empty).ToLower()));
             }
             else
             {
@@ -268,11 +297,13 @@ var model = new MailAccountViewModel
                     _context.MailAccounts.Add(account);
                     await _context.SaveChangesAsync();
 
+                    var defaultFolderSetup = await ConfigureDefaultArchivedFoldersAsync(account);
+
                     // Auto-assign the account to the current user if they are a SelfManager (not Admin)
                     var authService = HttpContext.RequestServices.GetService<MailArchiver.Services.IAuthenticationService>();
                     var currentUsername = authService.GetCurrentUserDisplayName(HttpContext);
                     var currentUser = await _context.Users
-                        .FirstOrDefaultAsync(u => u.Username.ToLower() == currentUsername.ToLower());
+                        .FirstOrDefaultAsync(u => u.Username.ToLower() == (currentUsername ?? string.Empty).ToLower());
                     
                     if (currentUser != null && !currentUser.IsAdmin && currentUser.IsSelfManager)
                     {
@@ -295,7 +326,19 @@ var model = new MailAccountViewModel
                             mailAccountId: account.Id);
                     }
                     
-                    TempData["SuccessMessage"] = _localizer["EmailAccountCreateSuccess"].Value;
+                    var successMessage = _localizer["EmailAccountCreateSuccess"].Value;
+                    if (!string.IsNullOrWhiteSpace(defaultFolderSetup.UserMessage))
+                    {
+                        successMessage = $"{successMessage} {defaultFolderSetup.UserMessage}";
+                    }
+
+                    TempData["SuccessMessage"] = successMessage;
+
+                    if (defaultFolderSetup.RequiresManualReview)
+                    {
+                        return RedirectToAction(nameof(Edit), new { id = account.Id });
+                    }
+
                     return RedirectToAction(nameof(Index));
                 }
                 catch (Exception ex)
@@ -340,7 +383,6 @@ var model = new MailAccountViewModel
                 LocalRetentionDays = account.LocalRetentionDays,
                 Provider = account.Provider,
                 ClientId = account.ClientId,
-                ClientSecret = account.ClientSecret,
                 TenantId = account.TenantId
             };
 
@@ -525,7 +567,7 @@ var model = new MailAccountViewModel
                             if (!isAdmin && isSelfManager)
                             {
                                 accountsQuery = accountsQuery
-                                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
+                                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == (currentUsername ?? string.Empty).ToLower()));
                             }
 
                             var accountsToUpdate = await accountsQuery.ToListAsync();
@@ -810,6 +852,13 @@ var model = new MailAccountViewModel
                 var jobId = await _syncJobService.StartSyncAsync(id, account.Name);
                 if (!string.IsNullOrEmpty(jobId))
                 {
+                    var syncCancellation = new CancellationTokenSource();
+
+                    _syncJobService.UpdateJobProgress(jobId, job =>
+                    {
+                        job.CancellationTokenSource = syncCancellation;
+                    });
+
                     // Actually perform the sync based on provider type
                     if (account.Provider == ProviderType.M365)
                     {
@@ -822,20 +871,33 @@ var model = new MailAccountViewModel
                                 using var scope = _serviceScopeFactory.CreateScope();
                                 var graphEmailService = scope.ServiceProvider.GetRequiredService<IGraphEmailService>();
                                 var dbContext = scope.ServiceProvider.GetRequiredService<MailArchiverDbContext>();
-                                
+
                                 // Get a fresh untracked copy of the account from the new context to avoid tracking conflicts
                                 var freshAccount = await dbContext.MailAccounts
                                     .AsNoTracking()
                                     .FirstOrDefaultAsync(a => a.Id == account.Id);
                                 if (freshAccount != null)
                                 {
-                                    await graphEmailService.SyncMailAccountAsync(freshAccount, jobId);
+                                    await graphEmailService.SyncMailAccountAsync(freshAccount, jobId, syncCancellation.Token);
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                _logger.LogInformation("M365 sync for account {AccountName} was cancelled", account.Name);
+
+                                if (_syncJobService.GetJob(jobId)?.Completed == null)
+                                {
+                                    _syncJobService.CompleteJob(jobId, false, "Job was cancelled");
                                 }
                             }
                             catch (Exception ex)
                             {
                                 _logger.LogError(ex, "Error during M365 sync for account {AccountName}: {Message}", account.Name, ex.Message);
-                                _syncJobService.CompleteJob(jobId, false, ex.Message);
+
+                                if (_syncJobService.GetJob(jobId)?.Completed == null)
+                                {
+                                    _syncJobService.CompleteJob(jobId, false, ex.Message);
+                                }
                             }
                         });
                     }
@@ -850,24 +912,37 @@ var model = new MailAccountViewModel
                                 using var scope = _serviceScopeFactory.CreateScope();
                                 var imapService = scope.ServiceProvider.GetRequiredService<MailArchiver.Services.Providers.ImapEmailService>();
                                 var dbContext = scope.ServiceProvider.GetRequiredService<MailArchiverDbContext>();
-                                
+
                                 // Get a fresh untracked copy of the account from the new context to avoid tracking conflicts
                                 var freshAccount = await dbContext.MailAccounts
                                     .AsNoTracking()
                                     .FirstOrDefaultAsync(a => a.Id == account.Id);
                                 if (freshAccount != null)
                                 {
-                                    await imapService.SyncMailAccountAsync(freshAccount, jobId);
+                                    await imapService.SyncMailAccountAsync(freshAccount, jobId, syncCancellation.Token);
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                _logger.LogInformation("IMAP sync for account {AccountName} was cancelled", account.Name);
+
+                                if (_syncJobService.GetJob(jobId)?.Completed == null)
+                                {
+                                    _syncJobService.CompleteJob(jobId, false, "Job was cancelled");
                                 }
                             }
                             catch (Exception ex)
                             {
                                 _logger.LogError(ex, "Error during IMAP sync for account {AccountName}: {Message}", account.Name, ex.Message);
-                                _syncJobService.CompleteJob(jobId, false, ex.Message);
+
+                                if (_syncJobService.GetJob(jobId)?.Completed == null)
+                                {
+                                    _syncJobService.CompleteJob(jobId, false, ex.Message);
+                                }
                             }
                         });
                     }
-                    
+
                     // Log the sync action
                     var authService = HttpContext.RequestServices.GetService<MailArchiver.Services.IAuthenticationService>();
                     var currentUsername = authService.GetCurrentUserDisplayName(HttpContext);
@@ -1023,72 +1098,24 @@ var model = new MailAccountViewModel
         // GET: MailAccounts/ImportMBox
         public async Task<IActionResult> ImportMBox()
         {
-            // Use the authentication service to get user info properly
-            var authService = HttpContext.RequestServices.GetService<MailArchiver.Services.IAuthenticationService>();
-            var currentUsername = authService.GetCurrentUserDisplayName(HttpContext);
-            var isAdmin = authService.IsCurrentUserAdmin(HttpContext);
-            var isSelfManager = authService.IsCurrentUserSelfManager(HttpContext);
-
-            IQueryable<MailAccount> mailAccountsQuery;
-
-            // Check if user is admin (including legacy admin)
-            if (isAdmin)
-            {
-                _logger.LogInformation("User is admin, showing all accounts");
-                mailAccountsQuery = _context.MailAccounts;
-            }
-            else if (isSelfManager)
-            {
-                _logger.LogInformation("User is SelfManager, showing only assigned accounts");
-                mailAccountsQuery = _context.MailAccounts
-                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
-            }
-            else
-            {
-                _logger.LogInformation("User has no special permissions, showing no accounts");
-                mailAccountsQuery = _context.MailAccounts.Where(ma => false); // Empty query
-            }
-
-            var accounts = await mailAccountsQuery
-                .Where(a => a.IsEnabled)
-                .OrderBy(a => a.Name)
-                .ToListAsync();
+            var accounts = await GetAccessibleEnabledAccountsAsync();
 
             var model = new MBoxImportViewModel
             {
-                AvailableAccounts = accounts.Select(a => new SelectListItem
-                {
-                    Value = a.Id.ToString(),
-                    Text = $"{a.Name} ({a.EmailAddress})"
-                }).ToList(),
-                MaxFileSize = _uploadOptions.MaxFileSizeBytes,
-                AccountProviders = accounts.ToDictionary(a => a.Id, a => a.Provider)
+                MaxFileSize = _uploadOptions.MaxFileSizeBytes
             };
 
+            PopulateAccessibleAccounts(model, accounts);
             return View(model);
         }
 
         // POST: MailAccounts/ImportMBox
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [RequestSizeLimit(long.MaxValue)]
-        [RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
         public async Task<IActionResult> ImportMBox(MBoxImportViewModel model)
         {
-            // Reload accounts for validation failure
-            var accounts = await _context.MailAccounts
-                .Where(a => a.IsEnabled)
-                .OrderBy(a => a.Name)
-                .ToListAsync();
-
-            model.AvailableAccounts = accounts.Select(a => new SelectListItem
-            {
-                Value = a.Id.ToString(),
-                Text = $"{a.Name} ({a.EmailAddress})",
-                Selected = a.Id == model.TargetAccountId
-            }).ToList();
-
-            // Ensure MaxFileSize is set for validation failures
+            var accounts = await GetAccessibleEnabledAccountsAsync();
+            PopulateAccessibleAccounts(model, accounts);
             model.MaxFileSize = _uploadOptions.MaxFileSizeBytes;
 
             if (!ModelState.IsValid)
@@ -1109,8 +1136,13 @@ var model = new MailAccountViewModel
                 return View(model);
             }
 
-            // Validate target account
-            var targetAccount = await _context.MailAccounts.FindAsync(model.TargetAccountId);
+            if (!await HasAccessToAccountAsync(model.TargetAccountId))
+            {
+                return NotFound();
+            }
+
+            var targetAccount = await GetAccessibleMailAccountsQuery()
+                .FirstOrDefaultAsync(a => a.Id == model.TargetAccountId && a.IsEnabled);
             if (targetAccount == null)
             {
                 ModelState.AddModelError("TargetAccountId", _localizer["SelectedAccountNotFound"]);
@@ -1314,69 +1346,24 @@ var model = new MailAccountViewModel
         // GET: MailAccounts/ImportEml
         public async Task<IActionResult> ImportEml()
         {
-            // Use the authentication service to get user info properly
-            var authService = HttpContext.RequestServices.GetService<MailArchiver.Services.IAuthenticationService>();
-            var currentUsername = authService.GetCurrentUserDisplayName(HttpContext);
-            var isAdmin = authService.IsCurrentUserAdmin(HttpContext);
-            var isSelfManager = authService.IsCurrentUserSelfManager(HttpContext);
-
-            IQueryable<MailAccount> mailAccountsQuery;
-
-            // Check if user is admin (including legacy admin)
-            if (isAdmin)
-            {
-                _logger.LogInformation("User is admin, showing all accounts");
-                mailAccountsQuery = _context.MailAccounts;
-            }
-            else if (isSelfManager)
-            {
-                _logger.LogInformation("User is SelfManager, showing only assigned accounts");
-                mailAccountsQuery = _context.MailAccounts
-                    .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
-            }
-            else
-            {
-                _logger.LogInformation("User has no special permissions, showing no accounts");
-                mailAccountsQuery = _context.MailAccounts.Where(ma => false); // Empty query
-            }
-
-            var accounts = await mailAccountsQuery
-                .Where(a => a.IsEnabled)
-                .OrderBy(a => a.Name)
-                .ToListAsync();
+            var accounts = await GetAccessibleEnabledAccountsAsync();
 
             var model = new EmlImportViewModel
             {
-                AvailableAccounts = accounts.Select(a => new SelectListItem
-                {
-                    Value = a.Id.ToString(),
-                    Text = $"{a.Name} ({a.EmailAddress})"
-                }).ToList(),
                 MaxFileSize = _uploadOptions.MaxFileSizeBytes
             };
 
+            PopulateAccessibleAccounts(model, accounts);
             return View(model);
         }
 
         // POST: MailAccounts/ImportEml
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [RequestSizeLimit(long.MaxValue)]
-        [RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
         public async Task<IActionResult> ImportEml(EmlImportViewModel model)
         {
-            // Reload accounts for validation failure
-            var accounts = await _context.MailAccounts
-                .Where(a => a.IsEnabled)
-                .OrderBy(a => a.Name)
-                .ToListAsync();
-
-            model.AvailableAccounts = accounts.Select(a => new SelectListItem
-            {
-                Value = a.Id.ToString(),
-                Text = $"{a.Name} ({a.EmailAddress})",
-                Selected = a.Id == model.TargetAccountId
-            }).ToList();
+            var accounts = await GetAccessibleEnabledAccountsAsync();
+            PopulateAccessibleAccounts(model, accounts);
 
             // Ensure MaxFileSize is set for validation failures
             model.MaxFileSize = _uploadOptions.MaxFileSizeBytes;
@@ -1399,8 +1386,13 @@ var model = new MailAccountViewModel
                 return View(model);
             }
 
-            // Validate target account
-            var targetAccount = await _context.MailAccounts.FindAsync(model.TargetAccountId);
+            if (!await HasAccessToAccountAsync(model.TargetAccountId))
+            {
+                return NotFound();
+            }
+
+            var targetAccount = await GetAccessibleMailAccountsQuery()
+                .FirstOrDefaultAsync(a => a.Id == model.TargetAccountId && a.IsEnabled);
             if (targetAccount == null)
             {
                 ModelState.AddModelError("TargetAccountId", _localizer["SelectedAccountNotFound"]);
@@ -1741,51 +1733,130 @@ var model = new MailAccountViewModel
                     return Json(new List<string> { "INBOX" });
                 }
 
-                if (account.Provider == ProviderType.IMPORT)
+                var folders = await LoadAvailableFoldersForAccountAsync(account);
+                if (!folders.Any())
                 {
-                    // Für IMPORT-Konten: Existierende Ordner aus der Datenbank abrufen
-                    var folders = await _context.ArchivedEmails
-                        .Where(e => e.MailAccountId == accountId && !string.IsNullOrEmpty(e.FolderName))
-                        .Select(e => e.FolderName)
-                        .Distinct()
-                        .OrderBy(f => f)
-                        .ToListAsync();
-                    
-                    // IMMER "INBOX" als Standardoption hinzufügen
-                    if (!folders.Contains("INBOX"))
-                    {
-                        folders.Insert(0, "INBOX");
-                    }
-                    
-                    return Json(folders);
+                    return Json(new List<string> { "INBOX" });
                 }
-                else if (account.Provider == ProviderType.M365)
+
+                if (account.Provider == ProviderType.IMPORT && !folders.Contains("INBOX"))
                 {
-                    // Für M365-Konten den GraphEmailService verwenden
-                    var folders = await _graphEmailService.GetMailFoldersAsync(account);
-                    if (!folders.Any())
-                    {
-                        return Json(new List<string> { "INBOX" });
-                    }
-                    return Json(folders);
+                    folders.Insert(0, "INBOX");
                 }
-                else
-                {
-                    // Für IMAP-Konten den bestehenden EmailService verwenden
-                    var provider = await _providerFactory.GetServiceForAccountAsync(accountId);
-                    var folders = await provider.GetMailFoldersAsync(accountId);
-                    if (!folders.Any())
-                    {
-                        return Json(new List<string> { "INBOX" });
-                    }
-                    return Json(folders);
-                }
+
+                return Json(folders);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error loading folders for account {AccountId}", accountId);
                 return Json(new List<string> { "INBOX" });
             }
+        }
+
+        private sealed class DefaultFolderSetupResult
+        {
+            public bool RequiresManualReview { get; init; }
+            public string UserMessage { get; init; } = string.Empty;
+        }
+
+        private async Task<DefaultFolderSetupResult> ConfigureDefaultArchivedFoldersAsync(MailAccount account)
+        {
+            if (account.Provider == ProviderType.IMPORT)
+            {
+                return new DefaultFolderSetupResult();
+            }
+
+            try
+            {
+                var availableFolders = await LoadAvailableFoldersForAccountAsync(account);
+                availableFolders = availableFolders
+                    .Where(f => !string.IsNullOrWhiteSpace(f))
+                    .Select(f => f.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!availableFolders.Any())
+                {
+                    account.IsEnabled = false;
+                    await _context.SaveChangesAsync();
+
+                    return new DefaultFolderSetupResult
+                    {
+                        RequiresManualReview = true,
+                        UserMessage = _localizer["DefaultArchiveFoldersLoadFailed", _localizer["LoadAvailableFolders"].Value].Value
+                    };
+                }
+
+                var includedFolders = availableFolders
+                    .Where(DefaultArchiveFolderDetector.IsDefaultArchiveFolder)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var excludedFolders = availableFolders
+                    .Where(folder => !includedFolders.Contains(folder, StringComparer.OrdinalIgnoreCase))
+                    .ToList();
+
+                account.ExcludedFolders = string.Join(";", excludedFolders);
+                await _context.SaveChangesAsync();
+
+                var hasInbox = includedFolders.Any(DefaultArchiveFolderDetector.IsInboxFolder);
+                var hasSent = includedFolders.Any(DefaultArchiveFolderDetector.IsSentFolder);
+
+                if (hasInbox && hasSent)
+                {
+                    return new DefaultFolderSetupResult
+                    {
+                        UserMessage = _localizer["DefaultArchiveFoldersConfigured"].Value
+                    };
+                }
+
+                var detectedFolders = includedFolders.Any()
+                    ? string.Join(", ", includedFolders)
+                    : _localizer["NoMatchingDefaultFoldersDetected"].Value;
+
+                return new DefaultFolderSetupResult
+                {
+                    RequiresManualReview = true,
+                    UserMessage = _localizer[
+                        "DefaultArchiveFoldersManualReview",
+                        detectedFolders,
+                        _localizer["LoadAvailableFolders"].Value].Value
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not configure default archive folders automatically for account {AccountId}", account.Id);
+
+                account.IsEnabled = false;
+                await _context.SaveChangesAsync();
+
+                return new DefaultFolderSetupResult
+                {
+                    RequiresManualReview = true,
+                    UserMessage = _localizer["DefaultArchiveFoldersLoadFailed", _localizer["LoadAvailableFolders"].Value].Value
+                };
+            }
+        }
+
+        private async Task<List<string>> LoadAvailableFoldersForAccountAsync(MailAccount account)
+        {
+            if (account.Provider == ProviderType.IMPORT)
+            {
+                return await _context.ArchivedEmails
+                    .Where(e => e.MailAccountId == account.Id && !string.IsNullOrEmpty(e.FolderName))
+                    .Select(e => e.FolderName)
+                    .Distinct()
+                    .OrderBy(f => f)
+                    .ToListAsync();
+            }
+
+            if (account.Provider == ProviderType.M365)
+            {
+                return await _graphEmailService.GetMailFoldersAsync(account);
+            }
+
+            var provider = await _providerFactory.GetServiceForAccountAsync(account.Id);
+            return await provider.GetMailFoldersAsync(account.Id);
         }
 
         // Helper method to extract domain from email address
@@ -1829,7 +1900,7 @@ var model = new MailAccountViewModel
                 if (!isAdmin && isSelfManager)
                 {
                     accountsQuery = accountsQuery
-                        .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
+                        .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == (currentUsername ?? string.Empty).ToLower()));
                 }
 
                 // Exclude current account if editing
@@ -1889,8 +1960,8 @@ var model = new MailAccountViewModel
                 {
                     success = true,
                     clientId = account.ClientId,
-                    clientSecret = account.ClientSecret,
-                    tenantId = account.TenantId
+                    tenantId = account.TenantId,
+                    hasClientSecretConfigured = !string.IsNullOrWhiteSpace(account.ClientSecret)
                 });
             }
             catch (Exception ex)
@@ -1941,7 +2012,7 @@ var model = new MailAccountViewModel
                 if (!isAdmin && isSelfManager)
                 {
                     accountsQuery = accountsQuery
-                        .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == currentUsername.ToLower()));
+                        .Where(ma => ma.UserMailAccounts.Any(uma => uma.User.Username.ToLower() == (currentUsername ?? string.Empty).ToLower()));
                 }
 
                 var accountsToUpdate = await accountsQuery.ToListAsync();

@@ -1,0 +1,80 @@
+name: Push to Docker Hub
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  docker:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
+
+      - name: Resolve git metadata
+        id: gitmeta
+        run: |
+          SHA="${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}"
+          BRANCH="${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.event.workflow_run.head_branch }}"
+          SHORT_SHA="${SHA::7}"
+
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Stop for unsupported branches
+        run: |
+          BRANCH="${{ steps.gitmeta.outputs.branch }}"
+          if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "develop" ]; then
+            echo "Branch '$BRANCH' will not be pushed to Docker Hub."
+            exit 1
+          fi
+
+      - name: Set image tag
+        id: vars
+        run: |
+          BRANCH="${{ steps.gitmeta.outputs.branch }}"
+
+          if [ "$BRANCH" = "main" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          elif [ "$BRANCH" = "develop" ]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported branch: $BRANCH"
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: no8odycares/mailarchiver
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.tag }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            GIT_COMMIT=${{ steps.gitmeta.outputs.short_sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -271,7 +271,7 @@
 }
 
 [data-theme="dark"] .list-group-item:hover {
-  background-color: var(--table-hover-bg);
+  background-color: var(--card-bg);
 }
 
 /* Dark Mode für Email Body - Text und Hintergrund bleiben wie im Light Mode */
@@ -333,7 +333,7 @@
 }
 
 [data-theme="dark"] .table-hover > tbody > tr:hover > * {
-  background-color: var(--table-hover-bg);
+  background-color: inherit;
 }
 
 [data-theme="dark"] .table-primary {
@@ -392,6 +392,27 @@
 
 [data-theme="dark"] #theme-toggle:hover {
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+
+[data-theme="dark"] .navbar .dropdown-toggle.btn-outline-light {
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.3);
+  background-color: transparent;
+}
+
+[data-theme="dark"] .navbar .dropdown-toggle.btn-outline-light:hover,
+[data-theme="dark"] .navbar .dropdown-toggle.btn-outline-light:focus,
+[data-theme="dark"] .navbar .dropdown-toggle.btn-outline-light:active,
+[data-theme="dark"] .navbar .dropdown-toggle.btn-outline-light.show {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .navbar .dropdown-toggle.btn-outline-light:focus-visible {
+  box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
 }
 
 /* Dark Mode für Dropdown Menüs */

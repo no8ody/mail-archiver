@@ -13,6 +13,7 @@ using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Web;
 using Microsoft.Extensions.Localization;
+using MailArchiver.Utilities;
 
 namespace MailArchiver.Controllers
 {
@@ -2203,121 +2204,33 @@ namespace MailArchiver.Controllers
 
             string html;
 
-            // If plain text is requested or if there's no HTML body
             if (plainText || string.IsNullOrEmpty(htmlBodyToDisplay))
             {
-                // Display plain text
-                html = $@"<!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset=""utf-8"">
-                    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-                    <style>
-                        body {{ font-family: Arial, sans-serif; margin: 15px; background-color: #f8f9fa; }}
-                        pre {{ 
-                            white-space: pre-wrap; 
-                            word-wrap: break-word;
-                            background-color: white;
-                            padding: 20px;
-                            border: 1px solid #dee2e6;
-                            border-radius: 4px;
-                        }}
-                    </style>
-                </head>
-                <body>
-                    <pre>{HttpUtility.HtmlEncode(textBodyToDisplay ?? "[No content available]")}</pre>
-                </body>
-                </html>";
+                var encodedPlainText = $"<pre>{HttpUtility.HtmlEncode(textBodyToDisplay ?? "[No content available]")}</pre>";
+                html = EmailHtmlSanitizer.WrapDocument(encodedPlainText, plainText: true);
             }
             else
             {
-                // Display HTML with external resource blocking if configured
-                html = ResolveInlineImagesInHtml(SanitizeHtml(htmlBodyToDisplay, _viewOptions.BlockExternalResources), email.Attachments);
-
-                // Fügen Sie die Basis-HTML-Struktur hinzu, wenn sie fehlt
-                if (!html.Contains("<!DOCTYPE") && !html.Contains("<html"))
-                {
-                    html = $@"<!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset=""utf-8"">
-                        <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-                        <base target=""_blank"">
-                        <style>
-                            body {{ font-family: Arial, sans-serif; margin: 15px; }}
-                            pre {{ white-space: pre-wrap; }}
-                        </style>
-                    </head>
-                    <body>
-                        {html}
-                    </body>
-                    </html>";
-                }
+                var sanitizedHtml = SanitizeHtml(htmlBodyToDisplay, _viewOptions.BlockExternalResources);
+                var resolvedHtml = ResolveInlineImagesInHtml(sanitizedHtml, email.Attachments);
+                html = EmailHtmlSanitizer.WrapDocument(resolvedHtml, plainText: false);
             }
 
-            // Set proper content type with UTF-8 encoding to ensure correct character display
+            Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+            Response.Headers["Pragma"] = "no-cache";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            Response.Headers["Referrer-Policy"] = "no-referrer";
+            Response.Headers["Cross-Origin-Resource-Policy"] = "same-site";
+            Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-popups;";
+
             return Content(html, "text/html; charset=utf-8");
         }
 
         // Hilfsmethode zur Bereinigung von HTML für die sichere Darstellung
         private string SanitizeHtml(string html, bool blockExternalResources = false)
         {
-            if (string.IsNullOrEmpty(html))
-                return string.Empty;
-
-            // Entfernen von potenziellen JavaScript-Elementen
-            html = Regex.Replace(html, @"<script.*?</script>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-            // Entfernen von event handlers - behalte aber style-Attribute
-            html = Regex.Replace(html, @"(on\w+)=([""']).*?\2", "", RegexOptions.IgnoreCase);
-
-            // Entfernen von javascript: URLs
-            html = Regex.Replace(html, @"href=([""'])javascript:.*?\1", "href=\"#\"", RegexOptions.IgnoreCase);
-
-            // Block external resources if configured
-            if (blockExternalResources)
-            {
-                // Block external images (except data: URIs and cid: references for inline images)
-                html = Regex.Replace(html, 
-                    @"<img\s+([^>]*\s+)?src\s*=\s*([""'])(?!data:|cid:)https?://[^""']+\2", 
-                    "<img $1src=$2$2", 
-                    RegexOptions.IgnoreCase);
-                
-                // Block external stylesheets
-                html = Regex.Replace(html, 
-                    @"<link\s+([^>]*\s+)?href\s*=\s*([""'])https?://[^""']+\2[^>]*>", 
-                    "", 
-                    RegexOptions.IgnoreCase);
-                
-                // Block external CSS imports in style tags
-                html = Regex.Replace(html, 
-                    @"@import\s+url\s*\(\s*[""']?https?://[^)]+\)?", 
-                    "", 
-                    RegexOptions.IgnoreCase);
-                
-                // Block external fonts
-                html = Regex.Replace(html, 
-                    @"@font-face\s*\{[^}]*url\s*\(\s*[""']?https?://[^)]+\)[^}]*\}", 
-                    "", 
-                    RegexOptions.IgnoreCase);
-                
-                // Block external background images in inline styles (but keep data: URIs)
-                html = Regex.Replace(html, 
-                    @"(style\s*=\s*[""'][^""']*)(background(?:-image)?\s*:\s*url\s*\(\s*[""']?)(?!data:)https?://[^)]+\)", 
-                    "$1none)", 
-                    RegexOptions.IgnoreCase);
-            }
-
-            // WICHTIG: Style-Tags und inline-style Attribute NICHT entfernen
-            // Dadurch bleibt das originale Styling der E-Mail erhalten
-
-            // Einfügen einer Base-URL für Bilder, die relativen Pfade verwenden
-            if (!html.Contains("<base "))
-            {
-                html = Regex.Replace(html, @"<head>", "<head><base target=\"_blank\">", RegexOptions.IgnoreCase);
-            }
-
-            return html;
+            _ = blockExternalResources;
+            return EmailHtmlSanitizer.Sanitize(html);
         }
 
         // Hilfsmethode zur Auflösung von Inline-Bildern in HTML

@@ -2,17 +2,14 @@
 
 **A comprehensive solution for archiving, searching, and exporting emails**
 
-🌐 **Website:** [mail-archiver.org](https://mail-archiver.org)
-
 <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
-  <a href="https://mail-archiver.org" target="_blank"><img src="https://img.shields.io/badge/Website-mail--archiver.org-4A90D9?style=for-the-badge&logo=globe&logoColor=white" alt="Website"></a>
   <a href="#"><img src="https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
   <a href="#"><img src="https://img.shields.io/badge/.NET-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET"></a>
   <a href="#"><img src="https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"></a>
   <a href="#"><img src="https://img.shields.io/badge/Bootstrap-563D7C?style=for-the-badge&logo=bootstrap&logoColor=white" alt="Bootstrap"></a>
   <a href="https://github.com/s1t5/mail-archiver"><img src="https://img.shields.io/github/stars/s1t5/mail-archiver?style=for-the-badge&logo=github" alt="GitHub Stars"></a>
   <a href="https://www.buymeacoffee.com/s1t5" target="_blank"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-s1t5-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee"></a>
-  <a href="https://ko-fi.com/s1t5dev" target="_blank"><img src="https://img.shields.io/badge/Ko--Fi-s1t5dev-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
+  <a href="https://www.paypal.com/ncp/payment/E4HP9BVRYN54N" target="_blank"><img src="https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal Donate"></a>
 </div>
 
 ## ✨ Key Features
@@ -131,7 +128,7 @@ networks:
 6. Configure a reverse proxy of your choice with https to secure access to the application. 
 
 > ⚠️ **Attention**
-> The application itself does not provide encrypted access via https! It must be set up via a reverse proxy!
+> The application itself does not provide encrypted access via https! It must be set up via a reverse proxy! Moreover the application is not build for public internet access!
 
 7. Initial start of the containers:
 ```bash
@@ -186,31 +183,7 @@ You can also:
 If you find this project useful and would like to support its continued development, you can buy me a coffee! Your support helps me dedicate more time and resources to improving the application and adding new features. While financial support is not required, it is greatly appreciated and helps ensure the project's ongoing maintenance and enhancement.
 
 <a href="https://www.buymeacoffee.com/s1t5" target="_blank"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-s1t5-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee"></a>
-<a href="https://ko-fi.com/s1t5dev" target="_blank"><img src="https://img.shields.io/badge/Ko--Fi-s1t5dev-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
-<a href="https://github.com/sponsors/s1t5" target="_blank"><img src="https://img.shields.io/badge/GitHub%20Sponsors-s1t5-FF9A00?style=for-the-badge&logo=github-sponsors&logoColor=white" alt="GitHub Sponsors"></a>
-
-## 🌟 Project Sponsors
-
-With the generous support of our sponsors, Mail Archiver continues to evolve. Thank you for making it possible!
-
-*Disclaimer: The services listed above are third-party offerings and are neither affiliated with, endorsed by, nor tested by the Mail Archiver project.*
-
-<table>
-<tbody>
-<tr>
-<td align="center">
-<a href="https://www.admin-intelligence.de/" target="_blank">
-<img width="210" src="https://github.com/user-attachments/assets/f0a8f1fc-e5a5-4900-95c5-809a18b5b719" alt="Admin Intelligence">
-</a>
-</td>
-</tr>
-</tbody>
-</table>
-
-
-### 💝 Individual Sponsors
-
-A special thanks to all individual sponsors who support this project through [GitHub Sponsors](https://github.com/sponsors/s1t5), [Ko-fi](https://ko-fi.com/s1t5dev), and [Buy Me a Coffee](https://www.buymeacoffee.com/s1t5). Your contributions make a real difference!
+<a href="https://www.paypal.com/ncp/payment/E4HP9BVRYN54N" target="_blank"><img src="https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal Donate"></a>
 
 ---
 

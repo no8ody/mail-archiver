@@ -1,0 +1,91 @@
+name: Sync upstream main into develop
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add and fetch upstream remote
+        run: |
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/s1t5/mail-archiver.git
+          else
+            git remote add upstream https://github.com/s1t5/mail-archiver.git
+          fi
+
+          git fetch upstream main --prune
+          git fetch origin develop --prune
+
+      - name: Prepare sync branch from upstream main
+        run: |
+          git checkout -B sync/upstream-main-to-develop upstream/main
+
+      - name: Check if there are changes against develop
+        id: changes
+        run: |
+          if git diff --quiet origin/develop...HEAD; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push sync branch
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git push origin sync/upstream-main-to-develop --force
+
+      - name: Create or update pull request into develop
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing_pr=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --head sync/upstream-main-to-develop \
+            --base develop \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$existing_pr" ] && [ "$existing_pr" != "null" ]; then
+            gh pr edit "$existing_pr" \
+              --repo "${{ github.repository }}" \
+              --title "Sync upstream main into fork develop" \
+              --body "Automatische Synchronisierung von upstream \`s1t5/mail-archiver:main\` nach \`${{ github.repository }}:develop\`."
+          else
+            gh pr create \
+              --repo "${{ github.repository }}" \
+              --base develop \
+              --head sync/upstream-main-to-develop \
+              --title "Sync upstream main into fork develop" \
+              --body "Automatische Synchronisierung von upstream \`s1t5/mail-archiver:main\` nach \`${{ github.repository }}:develop\`."
+          fi
+
+      - name: No changes to sync
+        if: steps.changes.outputs.has_changes == 'false'
+        run: |
+          echo "No upstream changes to sync into develop."

@@ -23,12 +23,14 @@ namespace MailArchiver.Services.Providers
         private readonly Timer _cleanupTimer;
         private CancellationTokenSource? _currentJobCancellation;
         private readonly string _uploadsPath;
+        private readonly UploadOptions _uploadOptions;
 
-        public EmlImportService(IServiceProvider serviceProvider, ILogger<EmlImportService> logger, IWebHostEnvironment environment, IOptions<BatchOperationOptions> batchOptions)
+        public EmlImportService(IServiceProvider serviceProvider, ILogger<EmlImportService> logger, IWebHostEnvironment environment, IOptions<BatchOperationOptions> batchOptions, IOptions<UploadOptions> uploadOptions)
         {
             _serviceProvider = serviceProvider;
             _logger = logger;
             _batchOptions = batchOptions.Value;
+            _uploadOptions = uploadOptions.Value;
             _uploadsPath = Path.Combine(environment.ContentRootPath, "uploads", "eml");
 
             // Erstelle Upload-Verzeichnis falls es nicht existiert
@@ -102,10 +104,15 @@ namespace MailArchiver.Services.Providers
 
         public async Task<string> SaveUploadedFileAsync(IFormFile file)
         {
+            if (file.Length <= 0 || file.Length > _uploadOptions.MaxFileSizeBytes)
+            {
+                throw new InvalidOperationException($"Uploaded file exceeds the allowed size limit of {_uploadOptions.MaxFileSizeFormatted}.");
+            }
+
             var fileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
             var filePath = Path.Combine(_uploadsPath, fileName);
 
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64, FileOptions.Asynchronous))
             {
                 await file.CopyToAsync(stream);
             }
@@ -119,7 +126,8 @@ namespace MailArchiver.Services.Providers
             try
             {
                 using var zip = ZipFile.OpenRead(filePath);
-                int count = zip.Entries.Count(e => e.Name.EndsWith(".eml", StringComparison.OrdinalIgnoreCase));
+                var emlEntries = ValidateArchive(zip);
+                var count = emlEntries.Count;
                 _logger.LogInformation("Estimated {Count} emails in ZIP file {FilePath}", count, filePath);
                 return count;
             }
@@ -296,7 +304,7 @@ namespace MailArchiver.Services.Providers
             try
             {
                 using var zip = ZipFile.OpenRead(job.FilePath);
-                var emlEntries = zip.Entries.Where(e => e.Name.EndsWith(".eml", StringComparison.OrdinalIgnoreCase)).ToList();
+                var emlEntries = ValidateArchive(zip);
                 job.TotalEmails = emlEntries.Count;
 
                 foreach (var entry in emlEntries)
@@ -323,11 +331,7 @@ namespace MailArchiver.Services.Providers
                         }
 
                         using var entryStream = entry.Open();
-                        using var memoryStream = new MemoryStream();
-                        await entryStream.CopyToAsync(memoryStream, cancellationToken);
-                        memoryStream.Position = 0;
-
-                        var parser = new MimeParser(memoryStream, MimeFormat.Entity);
+                        var parser = new MimeParser(entryStream, MimeFormat.Entity);
                         var message = await parser.ParseMessageAsync(cancellationToken);
 
                         // Pre-clean message data to remove null bytes before processing
@@ -335,7 +339,7 @@ namespace MailArchiver.Services.Providers
                         PreCleanMessage(message);
 
                         job.CurrentEmailSubject = message.Subject;
-                        job.ProcessedBytes = memoryStream.Position;
+                        job.ProcessedBytes += entry.Length;
 
                         // Importiere E-Mail in die Datenbank
                         var importResult = await ImportEmailToDatabase(message, targetAccount, job, targetFolder);
@@ -420,6 +424,49 @@ namespace MailArchiver.Services.Providers
                     job.JobId, job.FilePath);
                 throw;
             }
+        }
+
+        private List<ZipArchiveEntry> ValidateArchive(ZipArchive zip)
+        {
+            var emlEntries = zip.Entries
+                .Where(e => !string.IsNullOrEmpty(e.Name) && e.Name.EndsWith(".eml", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (emlEntries.Count > _uploadOptions.MaxArchiveEntries)
+            {
+                throw new InvalidDataException($"Archive contains too many EML files. Maximum allowed: {_uploadOptions.MaxArchiveEntries}.");
+            }
+
+            long totalExpandedSize = 0;
+            foreach (var entry in emlEntries)
+            {
+                if (entry.Length <= 0)
+                {
+                    throw new InvalidDataException($"Archive entry '{entry.FullName}' is empty or invalid.");
+                }
+
+                if (entry.Length > _uploadOptions.MaxArchiveEntrySizeBytes)
+                {
+                    throw new InvalidDataException($"Archive entry '{entry.FullName}' exceeds the maximum allowed uncompressed size.");
+                }
+
+                totalExpandedSize += entry.Length;
+                if (totalExpandedSize > _uploadOptions.MaxArchiveExpandedSizeBytes)
+                {
+                    throw new InvalidDataException("Archive exceeds the maximum allowed total uncompressed size.");
+                }
+
+                if (entry.CompressedLength > 0)
+                {
+                    var compressionRatio = (double)entry.Length / entry.CompressedLength;
+                    if (compressionRatio > _uploadOptions.MaxArchiveCompressionRatio)
+                    {
+                        throw new InvalidDataException($"Archive entry '{entry.FullName}' exceeded the allowed compression ratio.");
+                    }
+                }
+            }
+
+            return emlEntries;
         }
 
         private async Task<ImportResult> ImportEmailToDatabase(MimeMessage message, MailAccount account, EmlImportJob job, string targetFolder)
@@ -616,6 +663,7 @@ namespace MailArchiver.Services.Providers
                     HasAttachments = allAttachments.Any(),
                     Body = body,
                     HtmlBody = htmlBody,
+                    BodySearchText = EmailEncryption.BuildBodySearchText(body, htmlBody),
                     // LEGACY: BodyUntruncated fields are no longer populated for new emails (kept for backward compatibility)
                     // Original body content is now stored in OriginalBody* fields (as byte[]) for both truncation AND null-byte cases
                     BodyUntruncatedText = null,  // Not populated for new emails - use OriginalBodyText instead
@@ -1026,30 +1074,18 @@ namespace MailArchiver.Services.Providers
 
         private bool DetermineIfOutgoing(MimeMessage message, MailAccount account, string folderName)
         {
-            // Prüfe ob die E-Mail vom Account gesendet wurde
             var accountEmail = account.EmailAddress.ToLowerInvariant();
             var fromAddress = message.From.Mailboxes.FirstOrDefault()?.Address?.ToLowerInvariant();
-            
-            // Absender-Vergleich: Prüfe ob die Absender-Adresse mit der Account-Adresse übereinstimmt
+
             bool isOutgoingEmail = !string.IsNullOrEmpty(fromAddress) &&
                                    !string.IsNullOrEmpty(accountEmail) &&
                                    fromAddress.Equals(accountEmail, StringComparison.OrdinalIgnoreCase);
-            
-            // Ordner-basierte Erkennung: Prüfe ob der Ordner ein typischer Sent-Ordner ist
             bool isOutgoingFolder = IsOutgoingFolderByName(folderName);
-            
-            // Ausschluss von Drafts-Ordnern
             bool isDraftsFolder = IsDraftsFolder(folderName);
-            
-            // Kombinierte Logik: Outgoing wenn (Absender passt ODER Sent-Ordner) UND kein Drafts-Ordner
+
             return (isOutgoingEmail || isOutgoingFolder) && !isDraftsFolder;
         }
 
-        /// <summary>
-        /// Checks if a folder name indicates outgoing mail based on its name in multiple languages
-        /// </summary>
-        /// <param name="folderName">The folder name to check</param>
-        /// <returns>True if the folder name indicates outgoing mail, false otherwise</returns>
         private bool IsOutgoingFolderByName(string folderName)
         {
             var outgoingFolderNames = new[]
@@ -1155,16 +1191,11 @@ namespace MailArchiver.Services.Providers
             return outgoingFolderNames.Any(name => folderNameLower.Contains(name));
         }
 
-        /// <summary>
-        /// Checks if a folder name indicates drafts
-        /// </summary>
-        /// <param name="folderName">The folder name to check</param>
-        /// <returns>True if the folder name indicates drafts, false otherwise</returns>
         private bool IsDraftsFolder(string folderName)
         {
             var draftsFolderNames = new[]
             {
-                "drafts", "entwürfe", "brouillons", "bozze", "draft", "sketches", "wachtwoorden"
+                "drafts", "entwürfe", "brouillons", "bozze"
             };
 
             string folderNameLower = folderName?.ToLowerInvariant() ?? "";

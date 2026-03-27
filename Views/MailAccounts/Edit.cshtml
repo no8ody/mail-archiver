@@ -109,6 +109,9 @@
                     </div>
                     
                     <h4 class="mt-4">@Localizer["FolderExclusion"]</h4>
+                    <div class="alert alert-info">
+                        @Html.Raw(string.Format(Localizer["DefaultArchiveFoldersHint"].Value, $"<strong>{System.Net.WebUtility.HtmlEncode(Localizer["LoadAvailableFolders"].Value)}</strong>"))
+                    </div>
                     <div class="mb-3">
                         <label asp-for="ExcludedFolders" class="form-label">@Localizer["ExcludedFolders"]</label>
                         <textarea asp-for="ExcludedFolders" class="form-control" rows="3" placeholder="@Localizer["EnterFolderNames"]"></textarea>

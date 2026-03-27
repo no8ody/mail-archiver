@@ -2465,4 +2465,19 @@
   <data name="ManualSyncTooltip" xml:space="preserve">
     <value>Manuelle Synchronisierung - Konto ist für automatische Synchronisierung deaktiviert</value>
   </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>Standardmäßig werden für dieses Konto nur Posteingang und Gesendet archiviert.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>Das Konto wurde erstellt, aber die Standardordner für Posteingang und Gesendet konnten nicht vollständig erkannt werden (erkannt: {0}). Öffnen Sie die Bearbeitungsseite, verwenden Sie „{1}“ und passen Sie die ausgeschlossenen Ordner manuell an.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>Das Konto wurde erstellt, aber die verfügbaren Ordner konnten nicht automatisch geladen werden. Das Konto wurde deaktiviert belassen, damit nicht versehentlich unerwartete Ordner archiviert werden. Öffnen Sie die Bearbeitungsseite, verwenden Sie „{0}“ und passen Sie die ausgeschlossenen Ordner manuell an.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>keine</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Neue Konten archivieren standardmäßig nur Posteingang und Gesendet, wenn diese Ordner automatisch erkannt werden können. Die Ordnererkennung prüft gängige Standardordnernamen über die unterstützten Sprachen hinweg – unabhängig von der eingestellten UI-Sprache. Wenn Ihr Anbieter andere Namen verwendet, nutzen Sie {0} und ergänzen Sie die Ordner, die ausgeschlossen werden sollen, im Textfeld darunter.</value>
+  </data>
 </root>

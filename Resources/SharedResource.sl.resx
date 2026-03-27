@@ -2464,4 +2464,19 @@
   <data name="DetailsLabel" xml:space="preserve">
     <value>Podrobnosti</value>
   </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>Privzeto se za ta račun arhivirata samo Prejeto in Poslano.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>Račun je bil ustvarjen, vendar standardnih map Prejeto in Poslano ni bilo mogoče v celoti zaznati (zaznano: {0}). Odprite stran za urejanje, uporabite »{1}« in ročno prilagodite izključene mape.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>Račun je bil ustvarjen, vendar razpoložljivih map ni bilo mogoče samodejno naložiti. Račun je ostal onemogočen, da se prepreči arhiviranje nepričakovanih map. Odprite stran za urejanje, uporabite »{0}« in ročno prilagodite izključene mape.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>ni</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Novi računi privzeto arhivirajo samo Prejeto in Poslano, kadar je ti mapi mogoče samodejno zaznati. Zaznavanje map preverja pogosta standardna imena map v podprtih jezikih, ne glede na izbrani jezik uporabniškega vmesnika. Če vaš ponudnik uporablja drugačna imena, uporabite {0} in v spodnje besedilno polje dodajte mape, ki jih želite izključiti.</value>
+  </data>
 </root>

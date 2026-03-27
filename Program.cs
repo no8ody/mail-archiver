@@ -6,10 +6,13 @@ using MailArchiver.Models;
 using MailArchiver.Services;
 using MailArchiver.Services.Providers;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Threading.RateLimiting;
+using System.Net;
+using IPNetwork = System.Net.IPNetwork;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -22,6 +25,241 @@ static SameSiteMode ParseSameSiteMode(string? value)
         "none" => SameSiteMode.None,
         _ => SameSiteMode.Lax // Default to Lax for better cross-site navigation support
     };
+}
+
+static CookieSecurePolicy ParseCookieSecurePolicy(string? value, CookieSecurePolicy defaultPolicy = CookieSecurePolicy.SameAsRequest)
+{
+    return value?.ToLowerInvariant() switch
+    {
+        "always" => CookieSecurePolicy.Always,
+        "none" => CookieSecurePolicy.None,
+        "sameasrequest" => CookieSecurePolicy.SameAsRequest,
+        _ => defaultPolicy
+    };
+}
+
+static IReadOnlyCollection<string> BuildAllowedHosts(IConfiguration configuration)
+{
+    var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "localhost",
+        "127.0.0.1",
+        "[::1]"
+    };
+
+    AddConfiguredHosts(hosts, configuration["AllowedHosts"]);
+    AddConfiguredHosts(hosts, configuration["HostFiltering:AllowedHosts"]);
+    AddOriginHost(hosts, configuration["Authentication:PublicOrigin"]);
+    AddOriginHost(hosts, configuration["Application:PublicOrigin"]);
+    AddConfiguredHosts(hosts, configuration["HostFiltering:AdditionalAllowedHosts"]);
+
+    return hosts.ToArray();
+}
+
+static void AddOriginHost(ISet<string> hosts, string? originValue)
+{
+    if (string.IsNullOrWhiteSpace(originValue))
+    {
+        return;
+    }
+
+    if (!Uri.TryCreate(originValue, UriKind.Absolute, out var originUri) ||
+        string.IsNullOrWhiteSpace(originUri.Host))
+    {
+        return;
+    }
+
+    AddNormalizedHost(hosts, originUri.Host);
+}
+
+static void AddConfiguredHosts(ISet<string> hosts, string? configuredHosts)
+{
+    if (string.IsNullOrWhiteSpace(configuredHosts))
+    {
+        return;
+    }
+
+    foreach (var rawHost in configuredHosts.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        AddNormalizedHost(hosts, rawHost);
+    }
+}
+
+static void AddNormalizedHost(ISet<string> hosts, string? hostValue)
+{
+    if (string.IsNullOrWhiteSpace(hostValue))
+    {
+        return;
+    }
+
+    var host = hostValue.Trim();
+    if (host == "*")
+    {
+        return;
+    }
+
+    if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+        host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!Uri.TryCreate(host, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return;
+        }
+
+        host = uri.Host;
+    }
+
+    if (host.Length >= 2 && host[0] == '[' && host[^1] == ']')
+    {
+        hosts.Add(host);
+        return;
+    }
+
+    if (IPAddress.TryParse(host, out var parsedAddress) && parsedAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+    {
+        hosts.Add($"[{parsedAddress}]");
+        return;
+    }
+
+    hosts.Add(host);
+}
+
+static void ConfigureAllowedHosts(HostFilteringOptions options, IConfiguration configuration)
+{
+    options.AllowedHosts = BuildAllowedHosts(configuration).ToList();
+}
+
+static string ResolveWritableDirectoryPath(string preferredPath, string fallbackPath)
+{
+    if (TryEnsureWritableDirectory(preferredPath, out var resolvedPreferredPath))
+    {
+        return resolvedPreferredPath;
+    }
+
+    if (TryEnsureWritableDirectory(fallbackPath, out var resolvedFallbackPath))
+    {
+        return resolvedFallbackPath;
+    }
+
+    return resolvedPreferredPath ?? resolvedFallbackPath ?? preferredPath;
+}
+
+static bool TryEnsureWritableDirectory(string? path, out string? normalizedPath)
+{
+    normalizedPath = null;
+    if (string.IsNullOrWhiteSpace(path))
+    {
+        return false;
+    }
+
+    try
+    {
+        var fullPath = Path.GetFullPath(path);
+        Directory.CreateDirectory(fullPath);
+
+        var probePath = Path.Combine(fullPath, $".write-test-{Guid.NewGuid():N}.tmp");
+        File.WriteAllText(probePath, "ok");
+        File.Delete(probePath);
+
+        normalizedPath = fullPath;
+        return true;
+    }
+    catch
+    {
+        normalizedPath = path;
+        return false;
+    }
+}
+
+static void AddDefaultTrustedProxyNetworks(ICollection<IPNetwork> knownNetworks)
+{
+    foreach (var value in new[]
+    {
+        "127.0.0.0/8",
+        "::1/128",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "100.64.0.0/10",
+        "fc00::/7",
+        "fe80::/10"
+    })
+    {
+        if (TryParseIpNetwork(value, out var network) && !knownNetworks.Contains(network))
+        {
+            knownNetworks.Add(network);
+        }
+    }
+}
+
+static void ConfigureTrustedForwarders(ForwardedHeadersOptions options, IConfiguration configuration)
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                               ForwardedHeaders.XForwardedHost |
+                               ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = Math.Max(1, configuration.GetValue<int?>("ReverseProxy:ForwardLimit") ?? 1);
+    options.RequireHeaderSymmetry = configuration.GetValue("ReverseProxy:RequireHeaderSymmetry", true);
+
+    var configuredProxyCount = 0;
+    var proxyValues = configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? Array.Empty<string>();
+    foreach (var proxyValue in proxyValues)
+    {
+        if (IPAddress.TryParse(proxyValue, out var proxyAddress))
+        {
+            options.KnownProxies.Add(proxyAddress);
+            configuredProxyCount++;
+        }
+    }
+
+    var configuredNetworkCount = 0;
+    var networkValues = configuration.GetSection("ReverseProxy:KnownNetworks").Get<string[]>() ?? Array.Empty<string>();
+    foreach (var networkValue in networkValues)
+    {
+        if (!TryParseIpNetwork(networkValue, out var network))
+        {
+            continue;
+        }
+
+        options.KnownIPNetworks.Add(network);
+        configuredNetworkCount++;
+    }
+
+    if (configuredProxyCount == 0 && configuredNetworkCount == 0)
+    {
+        AddDefaultTrustedProxyNetworks(options.KnownIPNetworks);
+    }
+}
+
+static bool TryParseIpNetwork(string? value, out IPNetwork network)
+{
+    network = default!;
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return false;
+    }
+
+    var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (parts.Length == 1 && IPAddress.TryParse(parts[0], out var singleAddress))
+    {
+        var prefixLength = singleAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
+        network = new IPNetwork(singleAddress, prefixLength);
+        return true;
+    }
+
+    if (parts.Length == 2 &&
+        IPAddress.TryParse(parts[0], out var address) &&
+        int.TryParse(parts[1], out var parsedPrefix))
+    {
+        var maxPrefix = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
+        if (parsedPrefix >= 0 && parsedPrefix <= maxPrefix)
+        {
+            network = new IPNetwork(address, parsedPrefix);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // Helper method to ensure __EFMigrationsHistory table exists
@@ -65,14 +303,27 @@ async static Task EnsureMigrationsHistoryTableExists(MailArchiverDbContext conte
 
 var builder = WebApplication.CreateBuilder(args);
 
+MailArchiver.Utilities.EmailEncryption.Configure(builder.Configuration);
+
+try
+{
+    MailArchiver.Utilities.EmailEncryption.EnsureConfigured();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[Startup] Encryption configuration error: {ex.Message}");
+    Environment.Exit(1);
+}
+
 // Configure Forwarded Headers for reverse proxy support
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | 
-                              Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost | 
-                              Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
-    options.KnownNetworks.Clear();
-    options.KnownProxies.Clear();
+    ConfigureTrustedForwarders(options, builder.Configuration);
+});
+
+builder.Services.PostConfigure<HostFilteringOptions>(options =>
+{
+    ConfigureAllowedHosts(options, builder.Configuration);
 });
 
 // Check if authentication is explicitly disabled in appsettings.json
@@ -139,9 +390,10 @@ builder.Services.AddScoped<MailArchiver.Utilities.DateTimeHelper>();
 // Add Session support
 builder.Services.AddDistributedMemoryCache();
 
-// Get authentication options for SameSite configuration
+// Get authentication options for SameSite and secure-cookie configuration
 var authOptionsConfig = builder.Configuration.GetSection(AuthenticationOptions.Authentication).Get<AuthenticationOptions>() ?? new AuthenticationOptions();
 var cookieSameSiteMode = ParseSameSiteMode(authOptionsConfig.CookieSameSite);
+var cookieSecurePolicy = ParseCookieSecurePolicy(builder.Configuration["Authentication:CookieSecurePolicy"], CookieSecurePolicy.SameAsRequest);
 
 builder.Services.AddSession(options =>
 {
@@ -149,6 +401,7 @@ builder.Services.AddSession(options =>
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
     options.Cookie.SameSite = cookieSameSiteMode;
+    options.Cookie.SecurePolicy = cookieSecurePolicy;
 });
 
 // Configure Anti-forgery (CSRF) cookies with same SameSite policy
@@ -156,11 +409,12 @@ builder.Services.AddAntiforgery(options =>
 {
     options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = cookieSameSiteMode;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    options.Cookie.SecurePolicy = cookieSecurePolicy;
 });
 
 // Add Data Protection with persistent key storage
-var dataProtectionPath = builder.Configuration.GetValue<string>("DataProtection:KeyPath") ?? "/app/DataProtection-Keys";
+var configuredDataProtectionPath = builder.Configuration.GetValue<string>("DataProtection:KeyPath") ?? "/app/DataProtection-Keys";
+var dataProtectionPath = ResolveWritableDirectoryPath(configuredDataProtectionPath, "/tmp/MailArchiver-DataProtection-Keys");
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath))
     .SetApplicationName("MailArchiver");
@@ -172,8 +426,28 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("LoginAttempts", httpContext =>
     {
         var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var partitionKey = $"login-{clientIp}";
-        
+        var username = string.Empty;
+
+        if (HttpMethods.IsPost(httpContext.Request.Method) && httpContext.Request.HasFormContentType)
+        {
+            try
+            {
+                username = (httpContext.Request.Form["Username"].FirstOrDefault() ??
+                            httpContext.Request.Form["username"].FirstOrDefault() ??
+                            string.Empty)
+                    .Trim()
+                    .ToLowerInvariant();
+            }
+            catch
+            {
+                username = string.Empty;
+            }
+        }
+
+        var partitionKey = string.IsNullOrEmpty(username)
+            ? $"login-{clientIp}"
+            : $"login-{clientIp}-{username}";
+
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey,
             _ => new FixedWindowRateLimiterOptions
@@ -330,6 +604,7 @@ builder.Services.AddSingleton<EmailDeletionService>();
 builder.Services.AddSingleton<IEmailDeletionService>(provider => provider.GetRequiredService<EmailDeletionService>());
 builder.Services.AddHostedService<EmailDeletionService>(provider => provider.GetRequiredService<EmailDeletionService>());
 
+builder.Services.AddHostedService<EncryptionMigrationHostedService>();
 builder.Services.AddHostedService<MailSyncBackgroundService>();
 
 // Register DatabaseMaintenanceService as singleton and hosted service - MUST be the same instance
@@ -356,9 +631,9 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
     var uploadOptions = builder.Configuration.GetSection(UploadOptions.Upload).Get<UploadOptions>() ?? new UploadOptions();
     
     options.MultipartBodyLengthLimit = uploadOptions.MaxFileSizeBytes;
-    options.ValueLengthLimit = (int)Math.Min(uploadOptions.MaxFileSizeBytes, int.MaxValue);
-    options.MultipartHeadersLengthLimit = (int)Math.Min(uploadOptions.MaxFileSizeBytes, int.MaxValue);
-    options.MemoryBufferThreshold = int.MaxValue;
+    options.ValueLengthLimit = 1024 * 1024;
+    options.MultipartHeadersLengthLimit = 64 * 1024;
+    options.MemoryBufferThreshold = uploadOptions.MemoryBufferThresholdBytes;
     options.BufferBody = false; // Stream large files directly to disk
 });
 
@@ -379,9 +654,9 @@ builder.WebHost.ConfigureKestrel((context, options) =>
 {
     var uploadOptions = context.Configuration.GetSection(UploadOptions.Upload).Get<UploadOptions>() ?? new UploadOptions();
     
-    options.Limits.MaxRequestBodySize = long.MaxValue;
-    options.Limits.KeepAliveTimeout = TimeSpan.FromHours(uploadOptions.KeepAliveTimeoutHours);
-    options.Limits.RequestHeadersTimeout = TimeSpan.FromHours(uploadOptions.RequestHeadersTimeoutHours);
+    options.Limits.MaxRequestBodySize = uploadOptions.MaxFileSizeBytes;
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(uploadOptions.KeepAliveTimeoutMinutes);
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(uploadOptions.RequestHeadersTimeoutSeconds);
 });
 
 var app = builder.Build();

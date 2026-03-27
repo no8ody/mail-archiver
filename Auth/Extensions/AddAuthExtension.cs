@@ -25,14 +25,26 @@ namespace MailArchiver.Auth.Extensions
             };
         }
 
+        private static CookieSecurePolicy ParseCookieSecurePolicy(string? value, CookieSecurePolicy defaultPolicy = CookieSecurePolicy.SameAsRequest)
+        {
+            return value?.ToLowerInvariant() switch
+            {
+                "always" => CookieSecurePolicy.Always,
+                "none" => CookieSecurePolicy.None,
+                "sameasrequest" => CookieSecurePolicy.SameAsRequest,
+                _ => defaultPolicy
+            };
+        }
+
         public static WebApplicationBuilder AddAuth(this WebApplicationBuilder builder)
         {
             builder.Services.AddScoped<AuthenticationHandler>();
             builder.Services.AddHttpContextAccessor();
             
-            // Get authentication options for SameSite configuration
+            // Get authentication options for SameSite and secure-cookie configuration
             var authOptionsConfig = builder.Configuration.GetSection(AuthenticationOptions.Authentication).Get<AuthenticationOptions>() ?? new AuthenticationOptions();
             var cookieSameSiteMode = ParseSameSiteMode(authOptionsConfig.CookieSameSite);
+            var cookieSecurePolicy = ParseCookieSecurePolicy(builder.Configuration["Authentication:CookieSecurePolicy"], CookieSecurePolicy.SameAsRequest);
             
             var authBuilder = builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme);
             authBuilder.AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
@@ -42,7 +54,7 @@ namespace MailArchiver.Auth.Extensions
                 options.AccessDeniedPath = "/Auth/AccessDenied";
                 options.Cookie.Name = authOptionsConfig.CookieName;
                 options.Cookie.HttpOnly = true;
-                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                options.Cookie.SecurePolicy = cookieSecurePolicy;
                 options.Cookie.SameSite = cookieSameSiteMode;
                 options.ExpireTimeSpan = TimeSpan.FromMinutes(authOptionsConfig.SessionTimeoutMinutes);
                 options.SlidingExpiration = true;
@@ -56,7 +68,7 @@ namespace MailArchiver.Auth.Extensions
                 {
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = cookieSameSiteMode;
-                    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                    options.Cookie.SecurePolicy = cookieSecurePolicy;
                 }); // temporary storage for OIDC result
                 authBuilder.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, (o) => {
                     o.ClientId = oauthOptions.ClientId;
@@ -107,8 +119,17 @@ namespace MailArchiver.Auth.Extensions
                         var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
                         logger.LogInformation("Redirecting to identity provider for sign-out");
                         
-                        // Add post-logout redirect URI to return user to login page after OIDC logout
-                        context.ProtocolMessage.PostLogoutRedirectUri = context.Request.Scheme + "://" + context.Request.Host + "/Auth/Login";
+                        var configuration = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+                        var configuredOrigin = configuration["Authentication:PublicOrigin"] ?? configuration["Application:PublicOrigin"];
+                        if (!string.IsNullOrWhiteSpace(configuredOrigin) && Uri.TryCreate(configuredOrigin, UriKind.Absolute, out var publicOrigin))
+                        {
+                            context.ProtocolMessage.PostLogoutRedirectUri = new Uri(publicOrigin, "/Auth/Login").ToString();
+                        }
+                        else
+                        {
+                            context.ProtocolMessage.PostLogoutRedirectUri = context.Request.Scheme + "://" + context.Request.Host + "/Auth/Login";
+                        }
+
                         return Task.CompletedTask;
                     };
 

@@ -2510,4 +2510,19 @@
   <data name="DetailsLabel" xml:space="preserve">
     <value>Szczegóły</value>
   </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>Domyślnie dla tego konta archiwizowane są tylko Skrzynka odbiorcza i Wysłane.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>Konto zostało utworzone, ale nie udało się w pełni wykryć standardowych folderów Skrzynka odbiorcza i Wysłane (wykryto: {0}). Otwórz stronę edycji, użyj „{1}” i ręcznie dostosuj wykluczone foldery.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>Konto zostało utworzone, ale nie udało się automatycznie załadować dostępnych folderów. Konto pozostawiono wyłączone, aby uniknąć archiwizowania nieoczekiwanych folderów. Otwórz stronę edycji, użyj „{0}” i ręcznie dostosuj wykluczone foldery.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>brak</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Nowe konta domyślnie archiwizują tylko Skrzynkę odbiorczą i Wysłane, gdy te foldery mogą zostać wykryte automatycznie. Wykrywanie folderów sprawdza typowe nazwy standardowych folderów we wszystkich obsługiwanych językach, niezależnie od wybranego języka interfejsu. Jeśli dostawca używa innych nazw, użyj {0} i dodaj w polu tekstowym poniżej foldery, które chcesz wykluczyć.</value>
+  </data>
 </root>

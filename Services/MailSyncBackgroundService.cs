@@ -25,7 +25,7 @@ namespace MailArchiver.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Mail Sync Background Service is starting...");
-            
+
             var syncIntervalMinutes = _configuration.GetValue<int>("MailSync:IntervalMinutes", 15);
             var syncTimeoutMinutes = _configuration.GetValue<int>("MailSync:TimeoutMinutes", 60);
             var alwaysForceFullSync = _configuration.GetValue<bool>("MailSync:AlwaysForceFullSync", false);
@@ -57,13 +57,13 @@ namespace MailArchiver.Services
                             account.LastSync = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
                         }
                         await dbContext.SaveChangesAsync();
-                        
+
                         // After saving, clear the change tracker and reload accounts as untracked
                         // to avoid tracking conflicts in the sync methods
                         dbContext.ChangeTracker.Clear();
                     }
                     else
-                    { 
+                    {
                         _logger.LogInformation("AlwaysForceFullSync is disabled. Using quick sync for all accounts.");
                     }
 
@@ -76,54 +76,80 @@ namespace MailArchiver.Services
 
                     foreach (var account in accounts)
                     {
+                        string? jobId = null;
+                        CancellationTokenSource? syncCts = null;
+
                         try
                         {
-                            using var accountCts = new CancellationTokenSource(TimeSpan.FromMinutes(syncTimeoutMinutes));
-                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(accountCts.Token, stoppingToken);
+                            syncCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                            syncCts.CancelAfter(TimeSpan.FromMinutes(syncTimeoutMinutes));
 
                             // Start sync job tracking with validation
-                            var jobId = await syncJobService.StartSyncAsync(account.Id, account.Name, account.LastSync);
-                            
+                            jobId = await syncJobService.StartSyncAsync(account.Id, account.Name, account.LastSync);
+
                             if (jobId == null)
                             {
-                                _logger.LogWarning("Skipping sync for account {AccountId} ({AccountName}) - account no longer exists or is disabled", 
+                                _logger.LogWarning("Skipping sync for account {AccountId} ({AccountName}) - account no longer exists or is disabled",
                                     account.Id, account.Name);
                                 continue;
                             }
-                            
-                            // Update job with cancellation token source
+
                             syncJobService.UpdateJobProgress(jobId, job =>
                             {
-                                job.CancellationTokenSource = accountCts;
+                                job.CancellationTokenSource = syncCts;
                             });
-                            
-                            _logger.LogInformation("Started sync job {JobId} for account {AccountName} with cancellation token", 
+
+                            _logger.LogInformation("Started sync job {JobId} for account {AccountName} with cancellation token",
                                 jobId, account.Name);
-                            
+
                             // Route to appropriate service based on provider type
                             if (account.Provider == ProviderType.M365)
                             {
                                 _logger.LogInformation("Using Microsoft Graph API for M365 account: {AccountName}", account.Name);
-                                await graphEmailService.SyncMailAccountAsync(account, jobId);
+                                await graphEmailService.SyncMailAccountAsync(account, jobId, syncCts.Token);
                             }
                             else
                             {
                                 _logger.LogInformation("Using IMAP for account: {AccountName}", account.Name);
                                 var provider = await providerFactory.GetServiceForAccountAsync(account.Id);
-                                await provider.SyncMailAccountAsync(account, jobId);
+                                await provider.SyncMailAccountAsync(account, jobId, syncCts.Token);
                             }
-                            
+
                             _logger.LogInformation("Mail sync completed for account: {AccountName}", account.Name);
+                        }
+                        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                        {
+                            if (!string.IsNullOrEmpty(jobId) && syncJobService.GetJob(jobId)?.Completed == null)
+                            {
+                                syncJobService.CancelJob(jobId);
+                                syncJobService.CompleteJob(jobId, false, "Application shutdown");
+                            }
+
+                            throw;
                         }
                         catch (OperationCanceledException)
                         {
-                            _logger.LogWarning("Sync for account {AccountName} timed out after {Timeout} minutes",
-                                account.Name, syncTimeoutMinutes);
+                            var reason = !stoppingToken.IsCancellationRequested && syncCts?.IsCancellationRequested == true
+                                ? $"Sync timed out after {syncTimeoutMinutes} minutes"
+                                : "Job was cancelled";
+
+                            if (!string.IsNullOrEmpty(jobId) && syncJobService.GetJob(jobId)?.Completed == null)
+                            {
+                                syncJobService.CancelJob(jobId);
+                                syncJobService.CompleteJob(jobId, false, reason);
+                            }
+
+                            _logger.LogWarning("Sync for account {AccountName} was cancelled: {Reason}",
+                                account.Name, reason);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Error syncing mail account {AccountName}: {Message}",
                                 account.Name, ex.Message);
+                        }
+                        finally
+                        {
+                            syncCts?.Dispose();
                         }
 
                         await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);

@@ -17,7 +17,7 @@ namespace MailArchiver.Services
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
-            
+
             // Cleanup-Timer: Jeden Stunde alte Jobs entfernen
             _cleanupTimer = new Timer(
                 callback: _ => CleanupOldJobs(),
@@ -33,26 +33,14 @@ namespace MailArchiver.Services
             // Note: We don't check IsEnabled here to allow manual sync for disabled accounts
             using var scope = _serviceProvider.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<MailArchiverDbContext>();
-            
+
             var accountExists = await dbContext.MailAccounts
                 .AnyAsync(a => a.Id == accountId && a.Provider != ProviderType.IMPORT);
-            
+
             if (!accountExists)
             {
                 _logger.LogWarning("Cannot start sync job for account {AccountId} ({AccountName}) - account does not exist or is an import-only account", accountId, accountName);
                 return null;
-            }
-
-            // Check if there's already an active job for this account
-            if (_activeAccountJobs.ContainsKey(accountId))
-            {
-                var existingJobId = _activeAccountJobs[accountId];
-                if (_jobs.TryGetValue(existingJobId, out var existingJob) && 
-                    existingJob.Status == SyncJobStatus.Running)
-                {
-                    _logger.LogWarning("Sync job for account {AccountId} ({AccountName}) is already running", accountId, accountName);
-                    throw new InvalidOperationException($"A sync job for account {accountName} is already running.");
-                }
             }
 
             var job = new SyncJob
@@ -63,9 +51,41 @@ namespace MailArchiver.Services
             };
 
             _jobs[job.JobId] = job;
-            _activeAccountJobs[accountId] = job.JobId;
-            _logger.LogInformation("Started sync job {JobId} for account {AccountName}", job.JobId, accountName);
-            return job.JobId;
+
+            try
+            {
+                while (true)
+                {
+                    if (_activeAccountJobs.TryAdd(accountId, job.JobId))
+                    {
+                        _logger.LogInformation("Started sync job {JobId} for account {AccountName}", job.JobId, accountName);
+                        return job.JobId;
+                    }
+
+                    if (!_activeAccountJobs.TryGetValue(accountId, out var existingJobId))
+                    {
+                        continue;
+                    }
+
+                    if (_jobs.TryGetValue(existingJobId, out var existingJob) &&
+                        existingJob.Status == SyncJobStatus.Running)
+                    {
+                        _jobs.TryRemove(job.JobId, out _);
+                        _logger.LogWarning("Sync job for account {AccountId} ({AccountName}) is already running", accountId, accountName);
+                        throw new InvalidOperationException($"A sync job for account {accountName} is already running.");
+                    }
+
+                    if (_activeAccountJobs.TryGetValue(accountId, out var currentJobId) && currentJobId == existingJobId)
+                    {
+                        _activeAccountJobs.TryRemove(accountId, out _);
+                    }
+                }
+            }
+            catch
+            {
+                _jobs.TryRemove(job.JobId, out _);
+                throw;
+            }
         }
 
         public string StartSync(int accountId, string accountName, DateTime? lastSync = null)
@@ -111,14 +131,49 @@ namespace MailArchiver.Services
         {
             if (_jobs.TryGetValue(jobId, out var job))
             {
-                job.Status = success ? SyncJobStatus.Completed : SyncJobStatus.Failed;
-                job.Completed = DateTime.UtcNow;
-                job.ErrorMessage = errorMessage;
-                
-                // Remove from active account jobs
-                _activeAccountJobs.TryRemove(job.MailAccountId, out _);
-                
-                _logger.LogInformation("Completed sync job {JobId} with status {Status}", 
+                if (!job.Completed.HasValue)
+                {
+                    var nowUtc = DateTime.UtcNow;
+
+                    if (job.Status == SyncJobStatus.Cancelled)
+                    {
+                        job.Completed = nowUtc;
+                        job.ErrorMessage ??= errorMessage ?? "Job was cancelled";
+                    }
+                    else
+                    {
+                        job.Status = success ? SyncJobStatus.Completed : SyncJobStatus.Failed;
+                        job.Completed = nowUtc;
+                        job.ErrorMessage = errorMessage;
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(errorMessage) && string.IsNullOrWhiteSpace(job.ErrorMessage))
+                {
+                    job.ErrorMessage = errorMessage;
+                }
+
+                if (_activeAccountJobs.TryGetValue(job.MailAccountId, out var activeJobId) && activeJobId == jobId)
+                {
+                    _activeAccountJobs.TryRemove(job.MailAccountId, out _);
+                }
+
+                if (job.CancellationTokenSource != null)
+                {
+                    try
+                    {
+                        job.CancellationTokenSource.Dispose();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _logger.LogDebug("Token source for job {JobId} was already disposed during completion", jobId);
+                    }
+                    finally
+                    {
+                        job.CancellationTokenSource = null;
+                    }
+                }
+
+                _logger.LogInformation("Completed sync job {JobId} with status {Status}",
                     jobId, job.Status);
             }
         }
@@ -129,10 +184,8 @@ namespace MailArchiver.Services
             {
                 if (job.Status == SyncJobStatus.Running)
                 {
-                    // Set status to cancelled first
                     job.Status = SyncJobStatus.Cancelled;
-                    
-                    // Cancel the token source if it exists
+
                     if (job.CancellationTokenSource != null)
                     {
                         try
@@ -141,25 +194,26 @@ namespace MailArchiver.Services
                         }
                         catch (ObjectDisposedException)
                         {
-                            // Token source might already be disposed, that's okay
                             _logger.LogDebug("Token source for job {JobId} was already disposed", jobId);
                         }
                     }
-                    
-                    // Remove from active account jobs
-                    _activeAccountJobs.TryRemove(job.MailAccountId, out _);
-                    _logger.LogInformation("Cancelled sync job {JobId} for account {AccountName}", jobId, job.AccountName);
+
+                    _logger.LogInformation("Cancellation requested for sync job {JobId} for account {AccountName}", jobId, job.AccountName);
                     return true;
                 }
-                else
+
+                if (job.Status == SyncJobStatus.Cancelled)
                 {
-                    _logger.LogWarning("Cannot cancel job {JobId} because it's not running. Current status: {Status}", jobId, job.Status);
+                    return true;
                 }
+
+                _logger.LogWarning("Cannot cancel job {JobId} because it's not running. Current status: {Status}", jobId, job.Status);
             }
             else
             {
                 _logger.LogWarning("Cannot cancel job {JobId} because it doesn't exist", jobId);
             }
+
             return false;
         }
 
@@ -198,8 +252,24 @@ namespace MailArchiver.Services
             {
                 if (_jobs.TryGetValue(jobId, out var job))
                 {
-                    _activeAccountJobs.TryRemove(job.MailAccountId, out _);
+                    if (_activeAccountJobs.TryGetValue(job.MailAccountId, out var activeJobId) && activeJobId == jobId)
+                    {
+                        _activeAccountJobs.TryRemove(job.MailAccountId, out _);
+                    }
+
+                    if (job.CancellationTokenSource != null)
+                    {
+                        try
+                        {
+                            job.CancellationTokenSource.Dispose();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            _logger.LogDebug("Token source for job {JobId} was already disposed during cleanup", jobId);
+                        }
+                    }
                 }
+
                 _jobs.TryRemove(jobId, out _);
             }
 

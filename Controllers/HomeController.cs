@@ -160,9 +160,25 @@ namespace MailArchiver.Controllers
                 .ToListAsync();
 
             model.RecentEmails = await _context.ArchivedEmails
-                .Include(e => e.MailAccount)
+                .AsNoTracking()
                 .Where(e => accountIds.Contains(e.MailAccountId))
                 .OrderByDescending(e => e.SentDate)
+                .Select(e => new ArchivedEmail
+                {
+                    Id = e.Id,
+                    Subject = e.Subject,
+                    From = e.From,
+                    To = e.To,
+                    SentDate = e.SentDate,
+                    IsOutgoing = e.IsOutgoing,
+                    MailAccountId = e.MailAccountId,
+                    MailAccount = new MailAccount
+                    {
+                        Id = e.MailAccount.Id,
+                        Name = e.MailAccount.Name,
+                        EmailAddress = e.MailAccount.EmailAddress
+                    }
+                })
                 .Take(10)
                 .ToListAsync();
 

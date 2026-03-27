@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: Restore, build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore ./MailArchiver.csproj
+
+      - name: Build
+        run: dotnet build ./MailArchiver.csproj -c Release --no-restore
+
+      - name: Publish
+        run: dotnet publish ./MailArchiver.csproj -c Release -o ./artifacts/publish --no-build
+
+      - name: Upload publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-archiver-publish
+          path: ./artifacts/publish
+          if-no-files-found: error
+
+  docker:
+    name: Docker build and push
+    runs-on: ubuntu-latest
+    needs: dotnet
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image settings
+        id: image
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          REF_NAME="${GITHUB_REF_NAME}"
+          SAFE_REF=$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g')
+
+          PUSH=false
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            PUSH=true
+          fi
+
+          {
+            echo "commit=${SHORT_SHA}"
+            echo "push=${PUSH}"
+            echo "tags<<EOF"
+            if [[ "${REF_NAME}" == "main" ]]; then
+              echo "no8odycares/mailarchiver:latest"
+              echo "no8odycares/mailarchiver:sha-${SHORT_SHA}"
+            elif [[ "${REF_NAME}" == "develop" ]]; then
+              echo "no8odycares/mailarchiver:dev"
+              echo "no8odycares/mailarchiver:sha-${SHORT_SHA}"
+            else
+              echo "no8odycares/mailarchiver:${SAFE_REF}-${SHORT_SHA}"
+              echo "no8odycares/mailarchiver:sha-${SHORT_SHA}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        if: steps.image.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and optionally push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: ${{ steps.image.outputs.push == 'true' }}
+          build-args: |
+            GIT_COMMIT=${{ steps.image.outputs.commit }}
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
