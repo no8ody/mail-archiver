@@ -2,24 +2,18 @@ name: Docker
 
 on:
   workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
+    workflows: ["CI"]
+    types: [completed]
+    branches:
+      - main
+      - develop
 
 permissions:
   contents: read
 
 jobs:
   docker:
-    name: Docker build and push
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      (
-        github.event.workflow_run.head_branch == 'main' ||
-        github.event.workflow_run.head_branch == 'develop'
-      )
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -38,7 +32,6 @@ jobs:
           FULL_SHA="${{ github.event.workflow_run.head_sha }}"
           SHORT_SHA="$(echo "$FULL_SHA" | cut -c1-12)"
           REF_NAME="${{ github.event.workflow_run.head_branch }}"
-          SAFE_REF=$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g')
 
           {
             echo "full_sha=${FULL_SHA}"
@@ -49,9 +42,6 @@ jobs:
               echo "no8odycares/mailarchiver:sha-${SHORT_SHA}"
             elif [[ "${REF_NAME}" == "develop" ]]; then
               echo "no8odycares/mailarchiver:dev"
-              echo "no8odycares/mailarchiver:sha-${SHORT_SHA}"
-            else
-              echo "no8odycares/mailarchiver:${SAFE_REF}-${SHORT_SHA}"
               echo "no8odycares/mailarchiver:sha-${SHORT_SHA}"
             fi
             echo "EOF"
