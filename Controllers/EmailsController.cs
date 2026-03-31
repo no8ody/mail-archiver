@@ -195,6 +195,10 @@ namespace MailArchiver.Controllers
                     }));
             }
 
+            ViewBag.FolderTree = model.SelectedAccountId.HasValue
+                ? await BuildFolderTreeForAccountAsync(model.SelectedAccountId.Value, allowedAccountIds)
+                : new List<FolderTreeNode>();
+
             // Berechnen der Anzahl zu überspringender Elemente für die Paginierung
             int skip = (model.PageNumber - 1) * model.PageSize;
 
@@ -2049,6 +2053,36 @@ namespace MailArchiver.Controllers
             {
                 _logger.LogError(ex, "Exception while retrieving folders for account {AccountId}", accountId);
                 return Json(new List<string> { "INBOX" });
+            }
+        }
+
+        private async Task<List<FolderTreeNode>> BuildFolderTreeForAccountAsync(int accountId, List<int> allowedAccountIds = null)
+        {
+            try
+            {
+                if (allowedAccountIds != null && allowedAccountIds.Any() && !allowedAccountIds.Contains(accountId))
+                {
+                    _logger.LogWarning("User attempted to access folder tree for account {AccountId} which is not in their allowed accounts list", accountId);
+                    return new List<FolderTreeNode>();
+                }
+
+                var folderData = await _context.ArchivedEmails
+                    .AsNoTracking()
+                    .Where(e => e.MailAccountId == accountId)
+                    .Where(e => !string.IsNullOrEmpty(e.FolderName))
+                    .GroupBy(e => e.FolderName)
+                    .Select(g => new { FolderName = g.Key!, Count = g.Count() })
+                    .ToListAsync();
+
+                if (!folderData.Any())
+                    return new List<FolderTreeNode>();
+
+                return FolderTreeBuilder.Build(folderData.Select(f => (f.FolderName, f.Count)));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error building folder tree for account {AccountId}", accountId);
+                return new List<FolderTreeNode>();
             }
         }
 
