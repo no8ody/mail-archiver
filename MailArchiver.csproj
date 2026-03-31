@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MailKit" Version="4.14.1" />
+    <PackageReference Include="MailKit" Version="4.15.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
@@ -21,11 +21,31 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Graph" Version="5.101.0" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.81.0" />
-    <PackageReference Include="MimeKit" Version="4.14.0" />
+    <PackageReference Include="MimeKit" Version="4.15.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
     <PackageReference Include="Otp.NET" Version="1.4.1" />
     <PackageReference Include="QRCoder" Version="1.7.0" />
     <PackageReference Include="Azure.Identity" Version="1.17.1" />
   </ItemGroup>
+
+
+  <Target Name="SetGitCommitHash" BeforeTargets="GenerateAssemblyInfo">
+    <Exec Command="git rev-parse --short HEAD"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          Condition="'$(GitCommitShort)' == ''">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitShort" />
+    </Exec>
+    <PropertyGroup>
+      <GitCommitShort>$([System.String]::Copy('$(GitCommitShort)').Trim())</GitCommitShort>
+      <GitCommitShort Condition="'$(GitCommitShort)' == ''">unknown</GitCommitShort>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>GitCommitHash</_Parameter1>
+        <_Parameter2>$(GitCommitShort)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 
 </Project>

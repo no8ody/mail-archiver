@@ -51,7 +51,31 @@ namespace MailArchiver.Services.Providers
 
         #region Interface Implementation (IProviderEmailService)
 
-        public async Task SyncMailAccountAsync(MailAccount account, string? jobId = null)
+        private bool IsSyncCancellationRequested(string? jobId, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(jobId))
+            {
+                return false;
+            }
+
+            var job = _syncJobService.GetJob(jobId);
+            return job?.Status == SyncJobStatus.Cancelled || job?.CancellationTokenSource?.IsCancellationRequested == true;
+        }
+
+        private void ThrowIfSyncCancellationRequested(string? jobId, CancellationToken cancellationToken)
+        {
+            if (IsSyncCancellationRequested(jobId, cancellationToken))
+            {
+                throw new OperationCanceledException("Sync job was cancelled", cancellationToken);
+            }
+        }
+
+        public async Task SyncMailAccountAsync(MailAccount account, string? jobId = null, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("Starting IMAP sync for account: {AccountName}", account.Name);
 
@@ -67,11 +91,12 @@ namespace MailArchiver.Services.Providers
 
             try
             {
+                ThrowIfSyncCancellationRequested(jobId, cancellationToken);
                 await ConnectWithFallbackAsync(client, account.ImapServer, account.ImapPort ?? 993, account.UseSSL, account.Name);
                 await AuthenticateClientAsync(client, account);
                 _logger.LogInformation("Connected to IMAP server for {AccountName}", account.Name);
 
-                var allFolders = await GetAllFoldersAsync(client, account.Name);
+                var allFolders = await GetAllFoldersAsync(client, account.Name, cancellationToken);
 
                 if (jobId != null)
                 {
@@ -85,20 +110,11 @@ namespace MailArchiver.Services.Providers
 
                 foreach (var folder in allFolders)
                 {
-                    if (jobId != null)
-                    {
-                        var job = _syncJobService.GetJob(jobId);
-                        if (job?.Status == SyncJobStatus.Cancelled)
-                        {
-                            _logger.LogInformation("Sync job {JobId} for account {AccountName} has been cancelled", jobId, account.Name);
-                            _syncJobService.CompleteJob(jobId, false, "Job was cancelled");
-                            return;
-                        }
-                    }
+                    ThrowIfSyncCancellationRequested(jobId, cancellationToken);
 
                     try
                     {
-                        if (account.ExcludedFoldersList.Any(f => f.Equals(folder.FullName, StringComparison.OrdinalIgnoreCase)))
+                        if (IsExcludedFolder(account, folder))
                         {
                             _logger.LogInformation("Skipping excluded folder: {FolderName} for account: {AccountName}",
                                 folder.FullName, account.Name);
@@ -115,7 +131,7 @@ namespace MailArchiver.Services.Providers
                             });
                         }
 
-                        var folderResult = await SyncFolderAsync(folder, account, client, jobId);
+                        var folderResult = await SyncFolderAsync(folder, account, client, jobId, cancellationToken);
                         processedEmails += folderResult.ProcessedEmails;
                         newEmails += folderResult.NewEmails;
                         failedEmails += folderResult.FailedEmails;
@@ -143,7 +159,7 @@ namespace MailArchiver.Services.Providers
 
                 if (account.DeleteAfterDays.HasValue && account.DeleteAfterDays.Value > 0)
                 {
-                    deletedEmails = await DeleteOldEmailsAsync(account, client, jobId);
+                    deletedEmails = await DeleteOldEmailsAsync(account, client, jobId, cancellationToken);
 
                     if (jobId != null)
                     {
@@ -161,19 +177,19 @@ namespace MailArchiver.Services.Providers
                         localDeletedCount, account.Name);
                 }
 
-                if (failedEmails == 0)
+                // Always advance LastSync after a completed folder run so already-seen messages
+                // are not re-imported forever just because a few messages failed.
+                var trackedAccount = await _context.MailAccounts.FindAsync(account.Id);
+                if (trackedAccount != null)
                 {
-                    // Update LastSync using a separate tracked entity to avoid tracking conflicts
-                    var trackedAccount = await _context.MailAccounts.FindAsync(account.Id);
-                    if (trackedAccount != null)
-                    {
-                        trackedAccount.LastSync = DateTime.UtcNow;
-                        await _context.SaveChangesAsync();
-                    }
+                    var nowUtc = DateTime.UtcNow;
+                    trackedAccount.LastSync = nowUtc;
+                    await _context.SaveChangesAsync();
                 }
-                else
+
+                if (failedEmails > 0)
                 {
-                    _logger.LogWarning("Not updating LastSync for account {AccountName} due to {FailedCount} failed emails",
+                    _logger.LogWarning("Completed IMAP sync for account {AccountName} with {FailedCount} failed emails. LastSync was still updated to avoid endless reprocessing.",
                         account.Name, failedEmails);
                 }
 
@@ -185,6 +201,21 @@ namespace MailArchiver.Services.Providers
                 {
                     _syncJobService.CompleteJob(jobId, true);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("IMAP sync for account {AccountName} was cancelled", account.Name);
+
+                if (jobId != null)
+                {
+                    if (_syncJobService.GetJob(jobId)?.Status != SyncJobStatus.Cancelled)
+                    {
+                        _syncJobService.CancelJob(jobId);
+                    }
+
+                    _syncJobService.CompleteJob(jobId, false, "Job was cancelled");
+                }
+                throw;
             }
             catch (Exception ex)
             {
@@ -214,31 +245,21 @@ namespace MailArchiver.Services.Providers
                 return true;
             }
 
-            // If we're configured to ignore self-signed certificates and the only error is
-            // that the certificate is untrusted (which is typical for self-signed certs),
-            // then accept the certificate
+            // If we're configured to ignore self-signed certificates, only accept pure chain issues
+            // that are consistent with a self-signed or privately issued certificate. Never ignore
+            // hostname mismatches.
             if (_mailSyncOptions.IgnoreSelfSignedCert &&
-                (sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors ||
-                 sslPolicyErrors == SslPolicyErrors.RemoteCertificateNameMismatch))
+                sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors &&
+                chain.ChainStatus.Length > 0)
             {
-                // Additional check: if it's a chain error, verify it's specifically a self-signed certificate
-                if (sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors && chain.ChainStatus.Length > 0)
-                {
-                    // Check if the chain status indicates a self-signed certificate
-                    bool isSelfSigned = chain.ChainStatus.All(status =>
-                        status.Status == X509ChainStatusFlags.UntrustedRoot ||
-                        status.Status == X509ChainStatusFlags.PartialChain ||
-                        status.Status == X509ChainStatusFlags.RevocationStatusUnknown);
+                bool isSelfSigned = chain.ChainStatus.All(status =>
+                    status.Status == X509ChainStatusFlags.UntrustedRoot ||
+                    status.Status == X509ChainStatusFlags.PartialChain ||
+                    status.Status == X509ChainStatusFlags.RevocationStatusUnknown);
 
-                    if (isSelfSigned)
-                    {
-                        _logger.LogDebug("Accepting self-signed certificate for IMAP server");
-                        return true;
-                    }
-                }
-                else if (sslPolicyErrors == SslPolicyErrors.RemoteCertificateNameMismatch)
+                if (isSelfSigned)
                 {
-                    _logger.LogDebug("Accepting certificate with name mismatch for IMAP server (IgnoreSelfSignedCert=true)");
+                    _logger.LogDebug("Accepting self-signed certificate for IMAP server");
                     return true;
                 }
             }
@@ -714,7 +735,7 @@ namespace MailArchiver.Services.Providers
         /// <param name="client">The IMAP client to authenticate</param>
         /// <param name="account">The mail account with authentication details</param>
         /// <returns>Task</returns>
-        private async Task AuthenticateClientAsync(ImapClient client, MailAccount account)
+        private async Task AuthenticateClientAsync(ImapClient client, MailAccount account, CancellationToken cancellationToken = default)
         {
             // Remove GSSAPI and NEGOTIATE mechanisms to prevent Kerberos authentication attempts
             // which can fail in containerized environments due to missing libraries
@@ -732,7 +753,7 @@ namespace MailArchiver.Services.Providers
                     _logger.LogDebug("Attempting SASL PLAIN authentication for account {AccountName}", account.Name);
                     var credentials = new NetworkCredential(username, password);
                     var saslPlain = new SaslMechanismPlain(credentials);
-                    await client.AuthenticateAsync(saslPlain);
+                    await client.AuthenticateAsync(saslPlain, cancellationToken);
                     _logger.LogDebug("SASL PLAIN authentication successful for account {AccountName}", account.Name);
                     return;
                 }
@@ -751,7 +772,7 @@ namespace MailArchiver.Services.Providers
             // Fallback: Let MailKit auto-negotiate the best available mechanism
             // This works for T-Online and other providers that don't support PLAIN
             _logger.LogDebug("Using auto-negotiated authentication for account {AccountName}", account.Name);
-            await client.AuthenticateAsync(username, password);
+            await client.AuthenticateAsync(username, password, cancellationToken);
         }
 
         /// <summary>
@@ -763,13 +784,13 @@ namespace MailArchiver.Services.Providers
         /// <param name="useSSL">Whether to attempt SSL connection</param>
         /// <param name="accountName">The account name for logging</param>
         /// <returns>Task</returns>
-        private async Task ConnectWithFallbackAsync(ImapClient client, string server, int port, bool useSSL, string accountName)
+        private async Task ConnectWithFallbackAsync(ImapClient client, string server, int port, bool useSSL, string accountName, CancellationToken cancellationToken = default)
         {
             if (!useSSL)
             {
                 _logger.LogDebug("Connecting to {Server}:{Port} with no security for account {AccountName}",
                     server, port, accountName);
-                await client.ConnectAsync(server, port, SecureSocketOptions.None);
+                await client.ConnectAsync(server, port, SecureSocketOptions.None, cancellationToken);
                 return;
             }
 
@@ -778,7 +799,7 @@ namespace MailArchiver.Services.Providers
             {
                 _logger.LogDebug("Connecting to {Server}:{Port} with SSL/TLS for account {AccountName}",
                     server, port, accountName);
-                await client.ConnectAsync(server, port, SecureSocketOptions.SslOnConnect);
+                await client.ConnectAsync(server, port, SecureSocketOptions.SslOnConnect, cancellationToken);
                 _logger.LogDebug("Successfully connected using SSL/TLS for account {AccountName}", accountName);
             }
             catch (MailKit.Security.SslHandshakeException sslEx)
@@ -789,7 +810,7 @@ namespace MailArchiver.Services.Providers
                 // Fallback: STARTTLS
                 try
                 {
-                    await client.ConnectAsync(server, port, SecureSocketOptions.StartTls);
+                    await client.ConnectAsync(server, port, SecureSocketOptions.StartTls, cancellationToken);
                     _logger.LogInformation("Successfully connected using STARTTLS for account {AccountName} on {Server}:{Port}",
                         accountName, server, port);
                 }
@@ -808,7 +829,7 @@ namespace MailArchiver.Services.Providers
             return new ImapClient();
         }
 
-        private async Task ReconnectClientAsync(ImapClient client, MailAccount account)
+        private async Task ReconnectClientAsync(ImapClient client, MailAccount account, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -820,13 +841,13 @@ namespace MailArchiver.Services.Providers
                 // Use the configurable pause between batches as reconnection delay
                 if (_batchOptions.PauseBetweenBatchesMs > 0)
                 {
-                    await Task.Delay(_batchOptions.PauseBetweenBatchesMs);
+                    await Task.Delay(_batchOptions.PauseBetweenBatchesMs, cancellationToken);
                 }
 
                 _logger.LogInformation("Reconnecting to IMAP server for account {AccountName}", account.Name);
                 await ConnectWithFallbackAsync(client, account.ImapServer, account.ImapPort ?? 993, account.UseSSL, account.Name);
                 client.ServerCertificateValidationCallback = ServerCertificateValidationCallback;
-                await AuthenticateClientAsync(client, account);
+                await AuthenticateClientAsync(client, account, cancellationToken);
                 _logger.LogInformation("Successfully reconnected to IMAP server for account {AccountName}", account.Name);
             }
             catch (Exception ex)
@@ -840,7 +861,7 @@ namespace MailArchiver.Services.Providers
 
         #region IMAP Sync
 
-        private async Task<SyncFolderResult> SyncFolderAsync(IMailFolder folder, MailAccount account, ImapClient client, string? jobId = null)
+        private async Task<SyncFolderResult> SyncFolderAsync(IMailFolder folder, MailAccount account, ImapClient client, string? jobId = null, CancellationToken cancellationToken = default)
         {
             var result = new SyncFolderResult();
 
@@ -849,6 +870,8 @@ namespace MailArchiver.Services.Providers
 
             try
             {
+                ThrowIfSyncCancellationRequested(jobId, cancellationToken);
+
                 if (string.IsNullOrEmpty(folder.FullName) ||
                     folder.Attributes.HasFlag(FolderAttributes.NonExistent) ||
                     folder.Attributes.HasFlag(FolderAttributes.NoSelect))
@@ -862,18 +885,18 @@ namespace MailArchiver.Services.Providers
                 if (!client.IsConnected)
                 {
                     _logger.LogWarning("Client disconnected during sync, attempting to reconnect...");
-                    await ReconnectClientAsync(client, account);
+                    await ReconnectClientAsync(client, account, cancellationToken);
                 }
                 else if (!client.IsAuthenticated)
                 {
                     _logger.LogWarning("Client not authenticated, attempting to re-authenticate...");
-                    await AuthenticateClientAsync(client, account);
+                    await AuthenticateClientAsync(client, account, cancellationToken);
                 }
 
                 // Ensure folder is open
                 if (!folder.IsOpen)
                 {
-                    await folder.OpenAsync(FolderAccess.ReadOnly);
+                    await folder.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
                 }
 
                 bool isOutgoing = IsOutgoingFolder(folder);
@@ -896,24 +919,24 @@ namespace MailArchiver.Services.Providers
                     if (!client.IsConnected)
                     {
                         _logger.LogWarning("Client disconnected during sync, attempting to reconnect...");
-                        await ReconnectClientAsync(client, account);
+                        await ReconnectClientAsync(client, account, cancellationToken);
                     }
                     else if (!client.IsAuthenticated)
                     {
                         _logger.LogWarning("Client not authenticated, attempting to re-authenticate...");
-                        await AuthenticateClientAsync(client, account);
+                        await AuthenticateClientAsync(client, account, cancellationToken);
                     }
 
                     if (!folder.IsOpen)
                     {
-                        await folder.OpenAsync(FolderAccess.ReadOnly);
+                        await folder.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
                     }
 
                     IList<UniqueId> uids;
                     try
                     {
                         // Try the standard DeliveredAfter query first
-                        uids = await folder.SearchAsync(query);
+                        uids = await folder.SearchAsync(query, cancellationToken);
                         _logger.LogDebug("DeliveredAfter search found {Count} messages in folder {FolderName}",
                             uids.Count, folder.FullName);
 
@@ -1013,16 +1036,7 @@ namespace MailArchiver.Services.Providers
                     // Process emails in smaller chunks to reduce memory usage
                     for (int i = 0; i < uids.Count; i += _batchOptions.BatchSize)
                     {
-                        // Check if job has been cancelled
-                        if (jobId != null)
-                        {
-                            var job = _syncJobService.GetJob(jobId);
-                            if (job?.Status == SyncJobStatus.Cancelled)
-                            {
-                                _logger.LogInformation("Sync job {JobId} for account {AccountName} has been cancelled during folder sync", jobId, account.Name);
-                                return result;
-                            }
-                        }
+                        ThrowIfSyncCancellationRequested(jobId, cancellationToken);
 
                         var batch = uids.Skip(i).Take(_batchOptions.BatchSize).ToList();
                         _logger.LogInformation("Processing batch of {Count} messages (starting at {Start}) in folder {FolderName} via IMAP",
@@ -1031,16 +1045,7 @@ namespace MailArchiver.Services.Providers
 
                         foreach (var uid in batch)
                         {
-                            // Check if job has been cancelled
-                            if (jobId != null)
-                            {
-                                var job = _syncJobService.GetJob(jobId);
-                                if (job?.Status == SyncJobStatus.Cancelled)
-                                {
-                                    _logger.LogInformation("Sync job {JobId} for account {AccountName} has been cancelled during message processing", jobId, account.Name);
-                                    return result;
-                                }
-                            }
+                            ThrowIfSyncCancellationRequested(jobId, cancellationToken);
 
                             // Use using statement to ensure proper disposal of MimeMessage
                             try
@@ -1049,31 +1054,54 @@ namespace MailArchiver.Services.Providers
                                 if (!client.IsConnected)
                                 {
                                     _logger.LogWarning("Client disconnected during sync, attempting to reconnect...");
-                                    await ReconnectClientAsync(client, account);
+                                    await ReconnectClientAsync(client, account, cancellationToken);
                                     // Re-open the folder after reconnection
-                                    await folder.OpenAsync(FolderAccess.ReadOnly);
+                                    await folder.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
                                 }
                                 else if (!client.IsAuthenticated)
                                 {
                                     _logger.LogWarning("Client not authenticated, attempting to re-authenticate...");
-                                    await AuthenticateClientAsync(client, account);
+                                    await AuthenticateClientAsync(client, account, cancellationToken);
                                 }
                                 else if (folder.IsOpen == false)
                                 {
                                     _logger.LogWarning("Folder is not open, attempting to re-open...");
-                                    await folder.OpenAsync(FolderAccess.ReadOnly);
+                                    await folder.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
                                 }
 
-                                using var message = await folder.GetMessageAsync(uid);
-                                
-                                // Pre-clean message data to remove null bytes before archiving
-                                // This prevents PostgreSQL UTF-8 encoding errors (0x00 is invalid in UTF-8)
-                                PreCleanMessage(message);
-                                
-                                var isNew = await _coreService.ArchiveEmailAsync(account, message, isOutgoing, folder.FullName);
-                                if (isNew)
+                                MimeMessage? message = null;
+                                try
                                 {
-                                    result.NewEmails++;
+                                    message = await folder.GetMessageAsync(uid, cancellationToken);
+                                }
+                                catch (FormatException parseEx)
+                                {
+                                    _logger.LogWarning("GetMessageAsync failed for UID {Uid} in folder {Folder}, attempting raw stream fallback. Error: {Error}",
+                                        uid, folder.FullName, parseEx.Message);
+
+                                    try
+                                    {
+                                        using var rawStream = await folder.GetStreamAsync(uid, cancellationToken);
+                                        message = await MimeMessage.LoadAsync(rawStream, cancellationToken);
+                                    }
+                                    catch (Exception rawEx)
+                                    {
+                                        _logger.LogWarning("Raw stream fallback also failed for UID {Uid}: {Error}", uid, rawEx.Message);
+                                        throw new FormatException("Failed to parse message headers (both standard and raw fallback)", parseEx);
+                                    }
+                                }
+
+                                using (message)
+                                {
+                                    // Pre-clean message data to remove null bytes before archiving
+                                    // This prevents PostgreSQL UTF-8 encoding errors (0x00 is invalid in UTF-8)
+                                    PreCleanMessage(message);
+
+                                    var isNew = await _coreService.ArchiveEmailAsync(account, message, isOutgoing, folder.FullName);
+                                    if (isNew)
+                                    {
+                                        result.NewEmails++;
+                                    }
                                 }
                             }
                             catch (Exception ex)
@@ -1299,7 +1327,7 @@ namespace MailArchiver.Services.Providers
         /// <param name="client">The connected and authenticated IMAP client</param>
         /// <param name="accountName">The account name for logging purposes</param>
         /// <returns>A list of all selectable folders</returns>
-        private async Task<List<IMailFolder>> GetAllFoldersAsync(ImapClient client, string accountName)
+        private async Task<List<IMailFolder>> GetAllFoldersAsync(ImapClient client, string accountName, CancellationToken cancellationToken = default)
         {
             var allFolders = new List<IMailFolder>();
 
@@ -1336,7 +1364,7 @@ namespace MailArchiver.Services.Providers
                     try
                     {
                         // Recursive fetch - explicitly include non-subscribed folders
-                        var rootFolders = await client.GetFoldersAsync(ns, StatusItems.None, subscribedOnly: false);
+                        var rootFolders = await client.GetFoldersAsync(ns, StatusItems.None, subscribedOnly: false, cancellationToken: cancellationToken);
                         _logger.LogInformation("GetFoldersAsync(including non-subscribed) returned {Count} folders", rootFolders.Count);
 
                         foreach (var folder in rootFolders)
@@ -1362,7 +1390,7 @@ namespace MailArchiver.Services.Providers
                             var toProcess = new Queue<IMailFolder>();
 
                             // Top-level folder retrieval - explicitly include non-subscribed folders
-                            var topFolders = await client.GetFoldersAsync(ns, StatusItems.None, subscribedOnly: false);
+                            var topFolders = await client.GetFoldersAsync(ns, StatusItems.None, subscribedOnly: false, cancellationToken: cancellationToken);
                             _logger.LogInformation("Fallback: got {Count} top-level folders (including non-subscribed)", topFolders.Count);
 
                             foreach (var topFolder in topFolders)
@@ -1385,7 +1413,7 @@ namespace MailArchiver.Services.Providers
                                 try
                                 {
                                     // Fetch subfolders without recursion
-                                    var subFolders = await currentFolder.GetSubfoldersAsync(false);
+                                    var subFolders = await currentFolder.GetSubfoldersAsync(false, cancellationToken);
                                     foreach (var subFolder in subFolders)
                                     {
                                         _logger.LogDebug("Found subfolder: Name={Name}, FullName={FullName}, Attributes={Attributes}",
@@ -1943,7 +1971,7 @@ namespace MailArchiver.Services.Providers
 
         #region IMAP Retention
 
-        private async Task<int> DeleteOldEmailsAsync(MailAccount account, ImapClient client, string? jobId = null)
+        private async Task<int> DeleteOldEmailsAsync(MailAccount account, ImapClient client, string? jobId = null, CancellationToken cancellationToken = default)
         {
             if (!account.DeleteAfterDays.HasValue || account.DeleteAfterDays.Value <= 0)
             {
@@ -1958,8 +1986,10 @@ namespace MailArchiver.Services.Providers
 
             try
             {
+                ThrowIfSyncCancellationRequested(jobId, cancellationToken);
+
                 // Use the centralized robust folder retrieval method
-                var allFolders = await GetAllFoldersAsync(client, account.Name);
+                var allFolders = await GetAllFoldersAsync(client, account.Name, cancellationToken);
 
                 // Process each folder for deletion
                 foreach (var folder in allFolders)
@@ -1975,7 +2005,7 @@ namespace MailArchiver.Services.Providers
                     }
 
                     // Skip excluded folders
-                    if (account.ExcludedFoldersList.Any(f => f.Equals(folder.FullName, StringComparison.OrdinalIgnoreCase)))
+                    if (IsExcludedFolder(account, folder))
                     {
                         _logger.LogInformation("Skipping excluded folder for deletion: {FolderName} for account: {AccountName}",
                             folder.FullName, account.Name);
@@ -1988,12 +2018,12 @@ namespace MailArchiver.Services.Providers
                         if (!client.IsConnected)
                         {
                             _logger.LogWarning("Client disconnected during deletion, attempting to reconnect...");
-                            await ReconnectClientAsync(client, account);
+                            await ReconnectClientAsync(client, account, cancellationToken);
                         }
                         else if (!client.IsAuthenticated)
                         {
                             _logger.LogWarning("Client not authenticated during deletion, attempting to re-authenticate...");
-                            await AuthenticateClientAsync(client, account);
+                            await AuthenticateClientAsync(client, account, cancellationToken);
                         }
 
                         // Ensure folder is open with read-write access
@@ -2003,7 +2033,7 @@ namespace MailArchiver.Services.Providers
                         }
 
                         // First try using SearchQuery.SentBefore for efficiency
-                        var uids = await folder.SearchAsync(SearchQuery.SentBefore(cutoffDate));
+                        var uids = await folder.SearchAsync(SearchQuery.SentBefore(cutoffDate), cancellationToken);
 
                         // Log the results of the search query for debugging
                         _logger.LogInformation("SearchQuery.SentBefore found {Count} emails in folder {FolderName} for account {AccountName}",
@@ -2013,7 +2043,7 @@ namespace MailArchiver.Services.Providers
                         if (uids.Any())
                         {
                             // Fetch envelopes for the found emails to check their actual dates
-                            var summaries = await folder.FetchAsync(uids.Take(10).ToList(), MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.InternalDate);
+                            var summaries = await folder.FetchAsync(uids.Take(10).ToList(), MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.InternalDate, cancellationToken);
 
                             foreach (var summary in summaries)
                             {
@@ -2147,7 +2177,7 @@ namespace MailArchiver.Services.Providers
                                     try
                                     {
                                         _logger.LogInformation("Attempting to reconnect and retry deletion...");
-                                        await ReconnectClientAsync(client, account);
+                                        await ReconnectClientAsync(client, account, cancellationToken);
                                         await folder.OpenAsync(FolderAccess.ReadWrite);
 
                                         await folder.AddFlagsAsync(uidsToDelete, MessageFlags.Deleted, true);
@@ -2313,5 +2343,15 @@ namespace MailArchiver.Services.Providers
         }
 
         #endregion
+
+        private bool IsExcludedFolder(MailAccount account, IMailFolder folder)
+        {
+            var fullName = folder?.FullName?.Trim() ?? string.Empty;
+            var name = folder?.Name?.Trim() ?? string.Empty;
+
+            return account.ExcludedFoldersList.Any(excluded =>
+                excluded.Equals(fullName, StringComparison.OrdinalIgnoreCase) ||
+                excluded.Equals(name, StringComparison.OrdinalIgnoreCase));
+        }
     }
 }

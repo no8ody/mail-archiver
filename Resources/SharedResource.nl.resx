@@ -2245,7 +2245,10 @@
   <data name="Mismatch" xml:space="preserve">
     <value>Overeenkomstig</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>Geen mappen gevonden op de server</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>Geen mappen gevonden op de server</value>
   </data>
   <data name="PasswordChangeRequired" xml:space="preserve">
@@ -2463,5 +2466,20 @@
   </data>
   <data name="DetailsLabel" xml:space="preserve">
     <value>Details</value>
+  </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>Standaard worden voor dit account alleen Postvak IN en Verzonden gearchiveerd.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>Het account is aangemaakt, maar de standaardmappen voor Postvak IN en Verzonden konden niet volledig worden herkend (gedetecteerd: {0}). Open de bewerkpagina, gebruik "{1}" en pas de uitgesloten mappen handmatig aan.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>Het account is aangemaakt, maar de beschikbare mappen konden niet automatisch worden geladen. Het account is uitgeschakeld gelaten om te voorkomen dat onverwachte mappen worden gearchiveerd. Open de bewerkpagina, gebruik "{0}" en pas de uitgesloten mappen handmatig aan.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>geen</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Nieuwe accounts archiveren standaard alleen Postvak IN en Verzonden wanneer deze mappen automatisch kunnen worden herkend. De mapdetectie controleert veelvoorkomende standaardmapnamen in de ondersteunde talen, onafhankelijk van de geselecteerde UI-taal. Als uw provider andere namen gebruikt, gebruik dan {0} en voeg in het onderstaande tekstvak de mappen toe die u wilt uitsluiten.</value>
   </data>
 </root>

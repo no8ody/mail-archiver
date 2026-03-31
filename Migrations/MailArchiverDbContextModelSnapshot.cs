@@ -104,6 +104,12 @@ namespace MailArchiver.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("BodySearchText")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
+
                     b.Property<string>("BodyUntruncatedHtml")
                         .HasColumnType("text");
 
@@ -178,6 +184,9 @@ namespace MailArchiver.Migrations
                         .HasDatabaseName("IX_ArchivedEmails_ContentHash");
 
                     b.HasIndex("MailAccountId");
+
+                    b.HasIndex("MailAccountId", "MessageId")
+                        .IsUnique();
 
                     b.HasIndex("SentDate");
 

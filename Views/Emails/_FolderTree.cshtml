@@ -1,0 +1,74 @@
+@inject Microsoft.Extensions.Localization.IStringLocalizer<MailArchiver.SharedResource> Localizer
+@using System
+@using System.Linq
+@model List<MailArchiver.Models.ViewModels.FolderTreeNode>
+@{
+    var selectedFolder = ViewData["SelectedFolder"] as string;
+    var level = ViewData["Level"] as int? ?? 0;
+
+    bool HasSelectedDescendant(MailArchiver.Models.ViewModels.FolderTreeNode node, string? selected)
+    {
+        if (string.IsNullOrWhiteSpace(selected) || node.Children == null || !node.Children.Any())
+            return false;
+
+        foreach (var child in node.Children)
+        {
+            if (string.Equals(child.FullPath, selected, StringComparison.OrdinalIgnoreCase) || HasSelectedDescendant(child, selected))
+                return true;
+        }
+
+        return false;
+    }
+
+    string GetFolderIcon(string? folderName)
+    {
+        var lowerName = folderName?.ToLowerInvariant() ?? string.Empty;
+
+        if (lowerName == "inbox" || lowerName.EndsWith("/inbox")) return "bi-inbox";
+        if (lowerName.Contains("draft")) return "bi-file-earmark-text";
+        if (lowerName.Contains("sent")) return "bi-send";
+        if (lowerName.Contains("spam") || lowerName.Contains("junk")) return "bi-exclamation-triangle";
+        if (lowerName.Contains("trash") || lowerName.Contains("deleted")) return "bi-trash";
+        if (lowerName.Contains("archive")) return "bi-archive";
+
+        return "bi-folder";
+    }
+}
+
+@foreach (var node in Model ?? new List<MailArchiver.Models.ViewModels.FolderTreeNode>())
+{
+    var isSelected = string.Equals(node.FullPath, selectedFolder, StringComparison.OrdinalIgnoreCase);
+    var hasChildren = node.Children != null && node.Children.Any();
+    var shouldExpand = level == 0 || isSelected || HasSelectedDescendant(node, selectedFolder);
+    var indentStyle = level > 0 ? $"padding-left: {(level * 1.25)}rem;" : string.Empty;
+
+    <div class="folder-tree-item @(isSelected ? "selected" : "")" data-folder="@node.FullPath" style="@indentStyle">
+        @if (hasChildren)
+        {
+            <span class="folder-tree-toggle @(shouldExpand ? "expanded" : "")" role="button" tabindex="0" aria-label="@Localizer["ToggleDropdown"]">
+                <i class="bi bi-chevron-right"></i>
+            </span>
+        }
+        else
+        {
+            <span class="folder-tree-toggle empty"></span>
+        }
+        <i class="bi @GetFolderIcon(node.Name) folder-tree-icon"></i>
+        <span class="folder-tree-name">@node.Name</span>
+        @if (node.TotalCount > 0)
+        {
+            <span class="folder-tree-count">(@node.TotalCount)</span>
+        }
+    </div>
+
+    @if (hasChildren)
+    {
+        <div class="folder-tree-children" style="display:@(shouldExpand ? "block" : "none")">
+            @await Html.PartialAsync("_FolderTree", node.Children, new ViewDataDictionary(ViewData)
+            {
+                ["SelectedFolder"] = selectedFolder,
+                ["Level"] = level + 1
+            })
+        </div>
+    }
+}

@@ -2210,7 +2210,10 @@
   <data name="CouldNotLoadFolders" xml:space="preserve">
     <value>Could not load folders from server</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>No folders found on server</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>No folders found on server</value>
   </data>
   <data name="ComplianceModeStarted" xml:space="preserve">
@@ -2448,5 +2451,20 @@
   </data>
   <data name="ManualSyncTooltip" xml:space="preserve">
     <value>Manual sync - account is disabled for automatic synchronization</value>
+  </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>By default, only Inbox and Sent are archived for this account.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>The account was created, but the standard folders for Inbox and Sent could not be detected completely (detected: {0}). Open the edit page, use "{1}", and adjust the excluded folders manually.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>The account was created, but the available folders could not be loaded automatically. The account was left disabled to avoid archiving unexpected folders. Open the edit page, use "{0}", and adjust the excluded folders manually.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>none</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>New accounts default to archiving only Inbox and Sent when those folders can be detected automatically. Folder detection checks common standard folder names across supported languages, independent of the selected UI language. If your provider uses different names, use {0} and add the folders you want to exclude in the text box below.</value>
   </data>
 </root>

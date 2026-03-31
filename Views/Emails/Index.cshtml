@@ -1,18 +1,217 @@
 ﻿@using Microsoft.AspNetCore.Http.Extensions
 @using MailArchiver.Services
+@using MailArchiver.Models.ViewModels
 @inject MailArchiver.Services.IAuthenticationService AuthService
 @inject Microsoft.Extensions.Localization.IStringLocalizer<MailArchiver.SharedResource> Localizer
 @model MailArchiver.Models.ViewModels.SearchViewModel
 @{
     ViewData["Title"] = Localizer["EmailArchive"];
+    var folderTree = ViewBag.FolderTree as List<FolderTreeNode> ?? new List<FolderTreeNode>();
 }
 
 @* Anti-Forgery Token für JavaScript *@
 @Html.AntiForgeryToken()
 
+<style>
+    .folder-tree-panel {
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        overflow: hidden;
+    }
+
+    .folder-tree-header {
+        background-color: #f8f9fa;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #495057;
+    }
+
+    .folder-tree-content {
+        max-height: calc(100vh - 400px);
+        overflow-y: auto;
+        padding: 0.5rem 0;
+    }
+
+    .folder-tree-item {
+        display: flex;
+        align-items: center;
+        padding: 0.4rem 0.75rem;
+        cursor: pointer;
+        border-left: 3px solid transparent;
+        transition: all 0.15s ease-in-out;
+        color: inherit;
+    }
+
+    .folder-tree-item:hover {
+        background-color: #e9ecef;
+    }
+
+    .folder-tree-item.selected {
+        background-color: #cfe2ff;
+        border-left-color: #0d6efd;
+    }
+
+    .folder-tree-item.selected:hover {
+        background-color: #b6d4fe;
+    }
+
+    .folder-tree-toggle {
+        width: 1.25rem;
+        height: 1.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.25rem;
+        color: #6c757d;
+        font-size: 0.75rem;
+        transition: transform 0.15s ease-in-out;
+        flex-shrink: 0;
+    }
+
+    .folder-tree-toggle.expanded {
+        transform: rotate(90deg);
+    }
+
+    .folder-tree-toggle.empty {
+        visibility: hidden;
+    }
+
+    .folder-tree-icon {
+        width: 1.25rem;
+        margin-right: 0.5rem;
+        color: #ffc107;
+        flex-shrink: 0;
+    }
+
+    .folder-tree-name {
+        flex-grow: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 0.875rem;
+    }
+
+    .folder-tree-count {
+        font-size: 0.75rem;
+        color: #6c757d;
+        background-color: #e9ecef;
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        margin-left: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .folder-tree-item.selected .folder-tree-count {
+        background-color: #b6d4fe;
+        color: #0d6efd;
+    }
+
+    .folder-tree-empty {
+        padding: 1rem;
+        text-align: center;
+        color: #6c757d;
+        font-size: 0.875rem;
+    }
+
+
+    .folder-tree-offcanvas {
+        background-color: #fff;
+        color: #212529;
+    }
+
+    .folder-tree-offcanvas .offcanvas-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    [data-theme="dark"] .folder-tree-panel {
+        background-color: #1f2937;
+        border-color: #374151;
+    }
+
+    [data-theme="dark"] .folder-tree-header {
+        background-color: #111827;
+        border-bottom-color: #374151;
+        color: #e5e7eb;
+    }
+
+    [data-theme="dark"] .folder-tree-item {
+        color: #e5e7eb;
+    }
+
+    [data-theme="dark"] .folder-tree-item:hover {
+        background-color: #2b3545;
+    }
+
+    [data-theme="dark"] .folder-tree-item.selected {
+        background-color: rgba(13, 110, 253, 0.22);
+        border-left-color: #60a5fa;
+    }
+
+    [data-theme="dark"] .folder-tree-item.selected:hover {
+        background-color: rgba(13, 110, 253, 0.3);
+    }
+
+    [data-theme="dark"] .folder-tree-toggle,
+    [data-theme="dark"] .folder-tree-empty,
+    [data-theme="dark"] .folder-tree-count,
+    [data-theme="dark"] .folder-tree-empty .text-muted {
+        color: #9ca3af !important;
+    }
+
+    [data-theme="dark"] .folder-tree-count {
+        background-color: #374151;
+    }
+
+    [data-theme="dark"] .folder-tree-item.selected .folder-tree-count {
+        background-color: rgba(13, 110, 253, 0.28);
+        color: #bfdbfe;
+    }
+
+    [data-theme="dark"] .folder-tree-offcanvas {
+        background-color: #1f2937;
+        color: #e5e7eb;
+    }
+
+    [data-theme="dark"] .folder-tree-offcanvas .offcanvas-header {
+        background-color: #111827;
+        border-bottom-color: #374151;
+    }
+
+    [data-theme="dark"] .folder-tree-offcanvas .btn-close {
+        filter: invert(1) grayscale(100%) brightness(200%);
+    }
+
+    @@media (max-width: 991.98px) {
+        .folder-tree-panel {
+            display: none;
+        }
+
+        .folder-tree-mobile-toggle {
+            display: block !important;
+        }
+
+        .offcanvas .folder-tree-content {
+            max-height: none;
+        }
+    }
+
+    @@media (min-width: 992px) {
+        .folder-tree-mobile-toggle {
+            display: none !important;
+        }
+    }
+</style>
+
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="h3">@Localizer["EmailArchive"]</h1>
+        <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
+            <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
+        </button>
     </div>
 
     @* Active Jobs Alert *@
@@ -169,321 +368,353 @@
         </div>
     }
 
-    @if (Model.SearchResults != null && Model.SearchResults.Any())
-    {
-        <div class="card">
-            <div class="card-header bg-light">
-                <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
-                    <span class="small"><strong>@Model.TotalResults</strong> @Localizer["EmailsFound", ""]</span>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="small">@Localizer["PageOf", Model.PageNumber, Model.TotalPages]</span>
-                        <select asp-for="PageSize" asp-items="Model.PageSizeOptions" class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;"></select>
-                    </div>
+    <div class="row">
+        <div class="col-lg-2 d-none d-lg-block">
+            <div class="folder-tree-panel">
+                <div class="folder-tree-header">
+                    <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+                </div>
+                <div class="folder-tree-content" id="folderTreeContent">
+                    @if (!Model.SelectedAccountId.HasValue)
+                    {
+                        <div class="folder-tree-empty">
+                            <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                            <span class="text-muted">@Localizer["SelectAccountToViewFolders"]</span>
+                        </div>
+                    }
+                    else if (folderTree.Any())
+                    {
+                        @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
+                    }
+                    else
+                    {
+                        <div class="folder-tree-empty">
+                            <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                            <span class="text-muted">@Localizer["NoFolders"]</span>
+                        </div>
+                    }
                 </div>
             </div>
-            
-            @if (Model.ShowSelectionControls)
+        </div>
+
+        <div class="col-lg-10">
+            @if (Model.SearchResults != null && Model.SearchResults.Any())
             {
-                <div class="p-2 bg-light border-bottom">
-                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2">
-                        <div class="d-flex flex-wrap gap-2 align-items-center">
-                            <button type="button" id="selectAllBtn" class="btn btn-sm btn-outline-primary">@Localizer["SelectAll"]</button>
-                            <button type="button" id="deselectAllBtn" class="btn btn-sm btn-outline-secondary">@Localizer["DeselectAll"]</button>
-                            <span id="selectionCounter" class="badge bg-primary">0 selected</span>
-                            <span id="operationMode" class="badge bg-info" style="display:none;"></span>
-                        </div>
-                        <div id="selectionActions" style="display:none;">
-                            <button type="button" id="batchRestoreBtn" class="btn btn-sm btn-success me-2">
-                                <i class="bi bi-envelope-arrow-up"></i>
-                                <span class="d-inline">@Localizer["CopySelected"]</span>
-                            </button>
-                            <button type="button" id="exportSelectedBtn" class="btn btn-sm btn-primary me-2">
-                                <i class="bi bi-download"></i>
-                                <span class="d-inline">@Localizer["ExportSelected"]</span>
-                            </button>
-                            @if (User.IsInRole("Admin") || User.IsInRole("SelfManager"))
-                            {
-                                <button type="button" id="deleteSelectedBtn" class="btn btn-sm btn-danger">
-                                    <i class="bi bi-trash"></i>
-                                    <span class="d-inline">@Localizer["DeleteSelected"]</span>
-                                </button>
-                            }
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
+                            <span class="small"><strong>@Model.TotalResults</strong> @Localizer["EmailsFound", ""]</span>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="small">@Localizer["PageOf", Model.PageNumber, Model.TotalPages]</span>
+                                <select asp-for="PageSize" asp-items="Model.PageSizeOptions" class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;"></select>
+                            </div>
                         </div>
                     </div>
-                </div>
-            }
-
-            <!-- Desktop Tabelle -->
-            <div class="card-body p-0 d-none d-lg-block">
-                <div class="table-responsive">
-                    <table class="table table-hover table-striped mb-0">
-                        <thead class="table-dark">
-                            <tr>
-                                @if (Model.ShowSelectionControls)
-                                {
-                                    <th style="width: 50px;">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="selectAllCheckbox">
-                                        </div>
-                                    </th>
-                                }
-                                <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = 1,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = "Subject",
-                                    SortOrder = (Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                })'">
-                                    @Localizer["Subject"]
-                                    @if (Model.SortBy == "Subject")
+                    
+                    @if (Model.ShowSelectionControls)
+                    {
+                        <div class="p-2 bg-light border-bottom">
+                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2">
+                                <div class="d-flex flex-wrap gap-2 align-items-center">
+                                    <button type="button" id="selectAllBtn" class="btn btn-sm btn-outline-primary">@Localizer["SelectAll"]</button>
+                                    <button type="button" id="deselectAllBtn" class="btn btn-sm btn-outline-secondary">@Localizer["DeselectAll"]</button>
+                                    <span id="selectionCounter" class="badge bg-primary">0 selected</span>
+                                    <span id="operationMode" class="badge bg-info" style="display:none;"></span>
+                                </div>
+                                <div id="selectionActions" style="display:none;">
+                                    <button type="button" id="batchRestoreBtn" class="btn btn-sm btn-success me-2">
+                                        <i class="bi bi-envelope-arrow-up"></i>
+                                        <span class="d-inline">@Localizer["CopySelected"]</span>
+                                    </button>
+                                    <button type="button" id="exportSelectedBtn" class="btn btn-sm btn-primary me-2">
+                                        <i class="bi bi-download"></i>
+                                        <span class="d-inline">@Localizer["ExportSelected"]</span>
+                                    </button>
+                                    @if (User.IsInRole("Admin") || User.IsInRole("SelfManager"))
                                     {
-                                        <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
-                                    }
-                                </th>
-                                <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = 1,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = "From",
-                                    SortOrder = (Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                })'">
-                                    @Localizer["From"]
-                                    @if (Model.SortBy == "From")
-                                    {
-                                        <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
-                                    }
-                                </th>
-                                <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = 1,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = "To",
-                                    SortOrder = (Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                })'">
-                                    @Localizer["To"]
-                                    @if (Model.SortBy == "To")
-                                    {
-                                        <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
-                                    }
-                                </th>
-                                <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = 1,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = "SentDate",
-                                    SortOrder = (Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                })'">
-                                    @Localizer["Date"]
-                                    @if (Model.SortBy == "SentDate")
-                                    {
-                                        <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
-                                    }
-                                </th>
-                                <th>@Localizer["Account"]</th>
-                                <th>@Localizer["Attachments"]</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var email in Model.SearchResults)
-                            {
-                                <tr>
-                                    @if (Model.ShowSelectionControls)
-                                    {
-                                        <td>
-                                            <div class="form-check">
-                                                <input class="form-check-input email-select-checkbox" type="checkbox"
-                                                       name="ids" value="@email.Id">
-                                            </div>
-                                        </td>
-                                    }
-                                    <td>
-                                        @if (email.IsOutgoing)
-                                        {
-                                            <span class="badge bg-info">@Localizer["Out"]</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">@Localizer["In"]</span>
-                                        }
-                                        @email.Subject
-                                    </td>
-                                    <td>@email.From</td>
-                                    <td>@email.To</td>
-                                    <td>@email.SentDate.ToString("g")</td>
-                                    <td>@email.MailAccount.Name</td>
-                                    <td>
-                                        @if (email.HasAttachments)
-                                        {
-                                            <i class="bi bi-paperclip text-warning"></i>
-                                        }
-                                    </td>
-                                    <td>
-                                        <a asp-action="Details" 
-                                        asp-route-id="@email.Id" 
-                                        asp-route-returnUrl="@Context.Request.GetDisplayUrl()" 
-                                        class="btn btn-sm btn-outline-primary">@Localizer["Details"]</a>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Mobile Cards - Diese werden auf Mobilgeräten UND Tablets angezeigt -->
-            <div class="d-lg-none p-3">
-                @foreach (var email in Model.SearchResults)
-                {
-                    <div class="card mb-3 email-card-mobile">
-                        @if (Model.ShowSelectionControls)
-                        {
-                            <div class="form-check">
-                                <input class="form-check-input email-select-checkbox" type="checkbox"
-                                       name="ids" value="@email.Id" id="email-mobile-@email.Id">
-                                <label class="form-check-label" for="email-mobile-@email.Id">
-                                    @Localizer["SelectThisEmail"]
-                                </label>
-                            </div>
-                        }
-                        <div class="card-body p-3">
-                            <div class="email-card-header">
-                                <div class="email-card-title">
-                                    @if (email.IsOutgoing)
-                                    {
-                                        <i class="bi bi-arrow-up-right text-primary me-1"></i>
-                                    }
-                                    else
-                                    {
-                                        <i class="bi bi-arrow-down-left text-success me-1"></i>
-                                    }
-                                    @email.Subject
-                                    @if (email.HasAttachments)
-                                    {
-                                        <i class="bi bi-paperclip text-warning ms-1"></i>
+                                        <button type="button" id="deleteSelectedBtn" class="btn btn-sm btn-danger">
+                                            <i class="bi bi-trash"></i>
+                                            <span class="d-inline">@Localizer["DeleteSelected"]</span>
+                                        </button>
                                     }
                                 </div>
                             </div>
-                            <div class="email-card-meta">
-                                <div><strong>@Localizer["From"]:</strong> @email.From</div>
-                                <div><strong>@Localizer["To"]:</strong> @(email.To.Length > 50 ? email.To.Substring(0, 50) + "..." : email.To)</div>
-                                <div><strong>@Localizer["Date"]:</strong> @email.SentDate.ToString("g")</div>
-                                <div><strong>@Localizer["Account"]:</strong> @email.MailAccount.Name</div>
-                            </div>
-                            <div class="email-card-actions">
-                                <a asp-action="Details" 
-                                asp-route-id="@email.Id" 
-                                asp-route-returnUrl="@Context.Request.GetDisplayUrl()" 
-                                class="btn btn-outline-primary btn-sm w-100">
-                                    <i class="bi bi-eye"></i> @Localizer["Details"]
-                                </a>
-                            </div>
+                        </div>
+                    }
+
+                    <!-- Desktop Tabelle -->
+                    <div class="card-body p-0 d-none d-lg-block">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped mb-0">
+                                <thead class="table-dark">
+                                    <tr>
+                                        @if (Model.ShowSelectionControls)
+                                        {
+                                            <th style="width: 50px;">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="selectAllCheckbox">
+                                                </div>
+                                            </th>
+                                        }
+                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = 1,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = "Subject",
+                                            SortOrder = (Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                        })'">
+                                            @Localizer["Subject"]
+                                            @if (Model.SortBy == "Subject")
+                                            {
+                                                <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
+                                            }
+                                        </th>
+                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = 1,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = "From",
+                                            SortOrder = (Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                        })'">
+                                            @Localizer["From"]
+                                            @if (Model.SortBy == "From")
+                                            {
+                                                <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
+                                            }
+                                        </th>
+                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = 1,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = "To",
+                                            SortOrder = (Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                        })'">
+                                            @Localizer["To"]
+                                            @if (Model.SortBy == "To")
+                                            {
+                                                <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
+                                            }
+                                        </th>
+                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = 1,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = "SentDate",
+                                            SortOrder = (Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                        })'">
+                                            @Localizer["Date"]
+                                            @if (Model.SortBy == "SentDate")
+                                            {
+                                                <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
+                                            }
+                                        </th>
+                                        <th>@Localizer["Account"]</th>
+                                        <th>@Localizer["Attachments"]</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var email in Model.SearchResults)
+                                    {
+                                        <tr>
+                                            @if (Model.ShowSelectionControls)
+                                            {
+                                                <td>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input email-select-checkbox" type="checkbox"
+                                                               name="ids" value="@email.Id">
+                                                    </div>
+                                                </td>
+                                            }
+                                            <td>
+                                                @if (email.IsOutgoing)
+                                                {
+                                                    <span class="badge bg-info">@Localizer["Out"]</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">@Localizer["In"]</span>
+                                                }
+                                                @email.Subject
+                                            </td>
+                                            <td>@email.From</td>
+                                            <td>@email.To</td>
+                                            <td>@email.SentDate.ToString("g")</td>
+                                            <td>@email.MailAccount.Name</td>
+                                            <td>
+                                                @if (email.HasAttachments)
+                                                {
+                                                    <i class="bi bi-paperclip text-warning"></i>
+                                                }
+                                            </td>
+                                            <td>
+                                                <a asp-action="Details" 
+                                                asp-route-id="@email.Id" 
+                                                asp-route-returnUrl="@Context.Request.GetDisplayUrl()" 
+                                                class="btn btn-sm btn-outline-primary">@Localizer["Details"]</a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                }
-            </div>
 
-            <!-- Pagination -->
-            <div class="card-footer">
-                <nav>
-                    <ul class="pagination pagination-sm justify-content-center mb-0">
-                        @if (Model.PageNumber > 1)
+                    <!-- Mobile Cards - Diese werden auf Mobilgeräten UND Tablets angezeigt -->
+                    <div class="d-lg-none p-3">
+                        @foreach (var email in Model.SearchResults)
                         {
-                            <li class="page-item">
-                                <a class="page-link" href="@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = Model.PageNumber - 1,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = Model.SortBy,
-                                    SortOrder = Model.SortOrder
-                                })">@Localizer["Previous"]</a>
-                            </li>
+                            <div class="card mb-3 email-card-mobile">
+                                @if (Model.ShowSelectionControls)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input email-select-checkbox" type="checkbox"
+                                               name="ids" value="@email.Id" id="email-mobile-@email.Id">
+                                        <label class="form-check-label" for="email-mobile-@email.Id">
+                                            @Localizer["SelectThisEmail"]
+                                        </label>
+                                    </div>
+                                }
+                                <div class="card-body p-3">
+                                    <div class="email-card-header">
+                                        <div class="email-card-title">
+                                            @if (email.IsOutgoing)
+                                            {
+                                                <i class="bi bi-arrow-up-right text-primary me-1"></i>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-arrow-down-left text-success me-1"></i>
+                                            }
+                                            @email.Subject
+                                            @if (email.HasAttachments)
+                                            {
+                                                <i class="bi bi-paperclip text-warning ms-1"></i>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="email-card-meta">
+                                        <div><strong>@Localizer["From"]:</strong> @email.From</div>
+                                        <div><strong>@Localizer["To"]:</strong> @(email.To.Length > 50 ? email.To.Substring(0, 50) + "..." : email.To)</div>
+                                        <div><strong>@Localizer["Date"]:</strong> @email.SentDate.ToString("g")</div>
+                                        <div><strong>@Localizer["Account"]:</strong> @email.MailAccount.Name</div>
+                                    </div>
+                                    <div class="email-card-actions">
+                                        <a asp-action="Details" 
+                                        asp-route-id="@email.Id" 
+                                        asp-route-returnUrl="@Context.Request.GetDisplayUrl()" 
+                                        class="btn btn-outline-primary btn-sm w-100">
+                                            <i class="bi bi-eye"></i> @Localizer["Details"]
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
                         }
-                        @{
-                            var startPage = Math.Max(1, Model.PageNumber - 1);
-                            var endPage = Math.Min(Model.TotalPages, Model.PageNumber + 1);
-                        }
-                        @for (int i = startPage; i <= endPage; i++)
-                        {
-                            <li class="page-item @(i == Model.PageNumber ? "active" : "")">
-                                <a class="page-link" href="@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = i,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = Model.SortBy,
-                                    SortOrder = Model.SortOrder
-                                })">@i</a>
-                            </li>
-                        }
-                        @if (Model.PageNumber < Model.TotalPages)
-                        {
-                            <li class="page-item">
-                                <a class="page-link" href="@Url.Action("Index", new {
-                                    SearchTerm = Model.SearchTerm,
-                                    FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                    ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                    SelectedAccountId = Model.SelectedAccountId,
-                                    SelectedFolder = Model.SelectedFolder,
-                                    IsOutgoing = Model.IsOutgoing,
-                                    PageNumber = Model.PageNumber + 1,
-                                    PageSize = Model.PageSize,
-                                    ShowSelectionControls = Model.ShowSelectionControls,
-                                    SortBy = Model.SortBy,
-                                    SortOrder = Model.SortOrder
-                                })">@Localizer["Next"]</a>
-                            </li>
-                        }
-                    </ul>
-                </nav>
-            </div>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div class="card-footer">
+                        <nav>
+                            <ul class="pagination pagination-sm justify-content-center mb-0">
+                                @if (Model.PageNumber > 1)
+                                {
+                                    <li class="page-item">
+                                        <a class="page-link" href="@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = Model.PageNumber - 1,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = Model.SortBy,
+                                            SortOrder = Model.SortOrder
+                                        })">@Localizer["Previous"]</a>
+                                    </li>
+                                }
+                                @{
+                                    var startPage = Math.Max(1, Model.PageNumber - 1);
+                                    var endPage = Math.Min(Model.TotalPages, Model.PageNumber + 1);
+                                }
+                                @for (int i = startPage; i <= endPage; i++)
+                                {
+                                    <li class="page-item @(i == Model.PageNumber ? "active" : "")">
+                                        <a class="page-link" href="@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = i,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = Model.SortBy,
+                                            SortOrder = Model.SortOrder
+                                        })">@i</a>
+                                    </li>
+                                }
+                                @if (Model.PageNumber < Model.TotalPages)
+                                {
+                                    <li class="page-item">
+                                        <a class="page-link" href="@Url.Action("Index", new {
+                                            SearchTerm = Model.SearchTerm,
+                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                            SelectedAccountId = Model.SelectedAccountId,
+                                            SelectedFolder = Model.SelectedFolder,
+                                            IsOutgoing = Model.IsOutgoing,
+                                            PageNumber = Model.PageNumber + 1,
+                                            PageSize = Model.PageSize,
+                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            SortBy = Model.SortBy,
+                                            SortOrder = Model.SortOrder
+                                        })">@Localizer["Next"]</a>
+                                    </li>
+                                }
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            }
+            else if (Model.SearchResults != null)
+            {
+                <div class="text-center py-5">
+                    <div class="mb-3">
+                        <i class="bi bi-search display-1 text-muted"></i>
+                    </div>
+                    <h5 class="text-muted">@Localizer["NoEmailsFoundTitle"]</h5>
+                    <p class="text-muted">@Localizer["NoEmailsFoundText"]</p>
+                </div>
+            }
         </div>
-    }
-    else if (Model.SearchResults != null)
-    {
-        <div class="text-center py-5">
-            <div class="mb-3">
-                <i class="bi bi-search display-1 text-muted"></i>
-            </div>
-            <h5 class="text-muted">@Localizer["NoEmailsFoundTitle"]</h5>
-            <p class="text-muted">@Localizer["NoEmailsFoundText"]</p>
-        </div>
-    }
+    </div>
 </div>
 
 <!-- Batch Restore Confirmation Modal -->
@@ -563,6 +794,37 @@
     </div>
 </div>
 
+<div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
+            <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body p-0">
+        <div class="folder-tree-content" id="folderTreeContentMobile">
+            @if (!Model.SelectedAccountId.HasValue)
+            {
+                <div class="folder-tree-empty">
+                    <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                    <span class="text-muted">@Localizer["SelectAccountToViewFolders"]</span>
+                </div>
+            }
+            else if (folderTree.Any())
+            {
+                @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
+            }
+            else
+            {
+                <div class="folder-tree-empty">
+                    <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                    <span class="text-muted">@Localizer["NoFolders"]</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -583,6 +845,39 @@
                     searchForm.submit();
                 });
             }
+
+            function initializeFolderTreeHandlers() {
+                document.querySelectorAll('.folder-tree-item').forEach(function(item) {
+                    item.addEventListener('click', function(e) {
+                        if (e.target.closest('.folder-tree-toggle')) {
+                            return;
+                        }
+
+                        const folder = this.dataset.folder;
+                        if (!folder) return;
+
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('SelectedFolder', folder);
+                        url.searchParams.set('PageNumber', '1');
+                        window.location.href = url.toString();
+                    });
+                });
+
+                document.querySelectorAll('.folder-tree-toggle').forEach(function(toggle) {
+                    toggle.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const parent = this.closest('.folder-tree-item');
+                        const children = parent ? parent.nextElementSibling : null;
+                        if (children && children.classList.contains('folder-tree-children')) {
+                            const isHidden = children.style.display === 'none';
+                            children.style.display = isHidden ? 'block' : 'none';
+                            this.classList.toggle('expanded', isHidden);
+                        }
+                    });
+                });
+            }
+
+            initializeFolderTreeHandlers();
 
             // Load folders dynamically when account selection changes
             const accountSelect = document.getElementById('accountSelect');

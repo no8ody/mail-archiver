@@ -2245,7 +2245,10 @@
   <data name="Mismatch" xml:space="preserve">
     <value>Несоответствие</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>На сервере нет папок</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>На сервере нет папок</value>
   </data>
   <data name="PasswordChangeRequired" xml:space="preserve">
@@ -2463,5 +2466,20 @@
   </data>
   <data name="DetailsLabel" xml:space="preserve">
     <value>Детали</value>
+  </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>По умолчанию для этой учётной записи архивируются только «Входящие» и «Отправленные».</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>Учётная запись создана, но стандартные папки «Входящие» и «Отправленные» не удалось определить полностью (обнаружено: {0}). Откройте страницу редактирования, используйте «{1}» и вручную скорректируйте исключённые папки.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>Учётная запись создана, но доступные папки не удалось загрузить автоматически. Учётная запись оставлена отключённой, чтобы избежать архивирования неожиданных папок. Откройте страницу редактирования, используйте «{0}» и вручную скорректируйте исключённые папки.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>нет</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Новые учётные записи по умолчанию архивируют только папки «Входящие» и «Отправленные», если эти папки можно определить автоматически. Определение папок проверяет распространённые стандартные названия папок на всех поддерживаемых языках независимо от выбранного языка интерфейса. Если ваш провайдер использует другие названия, используйте {0} и добавьте в текстовое поле ниже папки, которые нужно исключить.</value>
   </data>
 </root>

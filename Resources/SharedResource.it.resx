@@ -2245,7 +2245,10 @@
   <data name="Mismatch" xml:space="preserve">
     <value>Non corrisponde</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>Nessuna cartella trovata sul server</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>Nessuna cartella trovata sul server</value>
   </data>
   <data name="PasswordChangeRequired" xml:space="preserve">
@@ -2463,5 +2466,20 @@
   </data>
   <data name="DetailsLabel" xml:space="preserve">
     <value>Dettagli</value>
+  </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>Per impostazione predefinita, per questo account vengono archiviate solo Posta in arrivo e Posta inviata.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>L’account è stato creato, ma le cartelle standard Posta in arrivo e Posta inviata non sono state rilevate completamente (rilevato: {0}). Aprire la pagina di modifica, usare "{1}" e regolare manualmente le cartelle escluse.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>L’account è stato creato, ma non è stato possibile caricare automaticamente le cartelle disponibili. L’account è stato lasciato disabilitato per evitare l’archiviazione di cartelle non previste. Aprire la pagina di modifica, usare "{0}" e regolare manualmente le cartelle escluse.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>nessuna</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>I nuovi account archiviano per impostazione predefinita solo Posta in arrivo e Posta inviata quando tali cartelle possono essere rilevate automaticamente. Il rilevamento delle cartelle controlla i nomi standard comuni nelle lingue supportate, indipendentemente dalla lingua dell’interfaccia selezionata. Se il provider usa nomi diversi, utilizzare {0} e aggiungere nella casella di testo sottostante le cartelle da escludere.</value>
   </data>
 </root>

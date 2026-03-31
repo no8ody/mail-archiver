@@ -33,12 +33,14 @@ private readonly IServiceProvider _serviceProvider;
         private readonly Timer _cleanupTimer;
         private CancellationTokenSource? _currentJobCancellation;
         private readonly string _uploadsPath;
+        private readonly UploadOptions _uploadOptions;
 
-        public MBoxImportService(IServiceProvider serviceProvider, ILogger<MBoxImportService> logger, IWebHostEnvironment environment, IOptions<BatchOperationOptions> batchOptions)
+        public MBoxImportService(IServiceProvider serviceProvider, ILogger<MBoxImportService> logger, IWebHostEnvironment environment, IOptions<BatchOperationOptions> batchOptions, IOptions<UploadOptions> uploadOptions)
         {
             _serviceProvider = serviceProvider;
             _logger = logger;
             _batchOptions = batchOptions.Value;
+            _uploadOptions = uploadOptions.Value;
             _uploadsPath = Path.Combine(environment.ContentRootPath, "uploads", "mbox");
 
             // Erstelle Upload-Verzeichnis falls es nicht existiert
@@ -112,10 +114,15 @@ private readonly IServiceProvider _serviceProvider;
 
         public async Task<string> SaveUploadedFileAsync(IFormFile file)
         {
+            if (file.Length <= 0 || file.Length > _uploadOptions.MaxFileSizeBytes)
+            {
+                throw new InvalidOperationException($"Uploaded file exceeds the allowed size limit of {_uploadOptions.MaxFileSizeFormatted}.");
+            }
+
             var fileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
             var filePath = Path.Combine(_uploadsPath, fileName);
 
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64, FileOptions.Asynchronous))
             {
                 await file.CopyToAsync(stream);
             }
@@ -615,6 +622,7 @@ private readonly IServiceProvider _serviceProvider;
                     HasAttachments = allAttachments.Any(),
                     Body = body,
                     HtmlBody = htmlBody,
+                    BodySearchText = EmailEncryption.BuildBodySearchText(body, htmlBody),
                     // Always preserve original body content if it differs from the cleaned/truncated version
                     // Storage-optimized: only populated when original != stored version (NULL otherwise = no extra storage)
                     // LEGACY: BodyUntruncated fields are no longer populated for new emails (kept for backward compatibility)
@@ -1027,30 +1035,18 @@ private readonly IServiceProvider _serviceProvider;
 
         private bool DetermineIfOutgoing(MimeMessage message, MailAccount account, string folderName)
         {
-            // Prüfe ob die E-Mail vom Account gesendet wurde
             var accountEmail = account.EmailAddress.ToLowerInvariant();
             var fromAddress = message.From.Mailboxes.FirstOrDefault()?.Address?.ToLowerInvariant();
-            
-            // Absender-Vergleich: Prüfe ob die Absender-Adresse mit der Account-Adresse übereinstimmt
+
             bool isOutgoingEmail = !string.IsNullOrEmpty(fromAddress) &&
                                    !string.IsNullOrEmpty(accountEmail) &&
                                    fromAddress.Equals(accountEmail, StringComparison.OrdinalIgnoreCase);
-            
-            // Ordner-basierte Erkennung: Prüfe ob der Ordner ein typischer Sent-Ordner ist
             bool isOutgoingFolder = IsOutgoingFolderByName(folderName);
-            
-            // Ausschluss von Drafts-Ordnern
             bool isDraftsFolder = IsDraftsFolder(folderName);
-            
-            // Kombinierte Logik: Outgoing wenn (Absender passt ODER Sent-Ordner) UND kein Drafts-Ordner
+
             return (isOutgoingEmail || isOutgoingFolder) && !isDraftsFolder;
         }
 
-        /// <summary>
-        /// Checks if a folder name indicates outgoing mail based on its name in multiple languages
-        /// </summary>
-        /// <param name="folderName">The folder name to check</param>
-        /// <returns>True if the folder name indicates outgoing mail, false otherwise</returns>
         private bool IsOutgoingFolderByName(string folderName)
         {
             var outgoingFolderNames = new[]
@@ -1156,16 +1152,11 @@ private readonly IServiceProvider _serviceProvider;
             return outgoingFolderNames.Any(name => folderNameLower.Contains(name));
         }
 
-        /// <summary>
-        /// Checks if a folder name indicates drafts
-        /// </summary>
-        /// <param name="folderName">The folder name to check</param>
-        /// <returns>True if the folder name indicates drafts, false otherwise</returns>
         private bool IsDraftsFolder(string folderName)
         {
             var draftsFolderNames = new[]
             {
-                "drafts", "entwürfe", "brouillons", "bozze", "draft", "sketches", "wachtwoorden"
+                "drafts", "entwürfe", "brouillons", "bozze"
             };
 
             string folderNameLower = folderName?.ToLowerInvariant() ?? "";

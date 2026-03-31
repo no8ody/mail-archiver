@@ -5,16 +5,30 @@ networks:
 
 services:
   mailarchive-app:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    environment:
+      MAILARCHIVER_GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      ASPNETCORE_URLS: http://0.0.0.0:5000
     restart: always
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     networks:
       - postgres
     volumes:
-      - ./appsettings.json:/app/appsettings.json
+      - ./appsettings.json:/app/appsettings.json:ro
       - ./logs:/app/logs
       - ./data-protection-keys:/app/DataProtection-Keys
+    tmpfs:
+      - /tmp
+      - /app/uploads
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
     depends_on:
       - postgres
 

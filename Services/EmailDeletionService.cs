@@ -88,6 +88,20 @@ namespace MailArchiver.Services
             return true;
         }
 
+        private static DeletedEmailMarker BuildDeletedEmailMarker(ArchivedEmail email)
+        {
+            return new DeletedEmailMarker
+            {
+                MailAccountId = email.MailAccountId,
+                MessageId = email.MessageId ?? string.Empty,
+                From = email.From ?? string.Empty,
+                To = email.To ?? string.Empty,
+                Subject = email.Subject ?? string.Empty,
+                SentDate = email.SentDate,
+                DeletedAt = DateTime.UtcNow
+            };
+        }
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Email Deletion Service started");
@@ -230,6 +244,31 @@ namespace MailArchiver.Services
                                 _logger.LogWarning(ex, "Failed to log deletion of email {EmailId}", email.Id);
                             }
                         }
+                    }
+
+                    var markersToAdd = new List<DeletedEmailMarker>();
+                    foreach (var email in emailsToDelete)
+                    {
+                        var marker = BuildDeletedEmailMarker(email);
+                        var exists = await context.DeletedEmailMarkers.AnyAsync(m =>
+                            m.MailAccountId == marker.MailAccountId &&
+                            ((!string.IsNullOrEmpty(marker.MessageId) && m.MessageId == marker.MessageId) ||
+                             (m.From == marker.From &&
+                              m.To == marker.To &&
+                              m.Subject == marker.Subject &&
+                              m.SentDate >= marker.SentDate.AddSeconds(-2) &&
+                              m.SentDate <= marker.SentDate.AddSeconds(2))),
+                            combinedToken);
+
+                        if (!exists)
+                        {
+                            markersToAdd.Add(marker);
+                        }
+                    }
+
+                    if (markersToAdd.Count > 0)
+                    {
+                        context.DeletedEmailMarkers.AddRange(markersToAdd);
                     }
 
                     context.ArchivedEmails.RemoveRange(emailsToDelete);

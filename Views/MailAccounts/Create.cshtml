@@ -273,26 +273,25 @@
                             // Switch provider to M365 if not already set
                             if (providerSelect.value !== '@ProviderType.M365') {
                                 providerSelect.value = '@ProviderType.M365';
-                                toggleSettings(); // This will show M365 settings
+                                toggleSettings();
                             }
-                            
-                            // Fill in the credentials
+
+                            // Copy only non-secret identifiers. Secrets must be entered manually.
                             clientIdInput.value = data.clientId || '';
-                            clientSecretInput.value = data.clientSecret || '';
                             tenantIdInput.value = data.tenantId || '';
-                            
-                            // Hide suggestion box after copying
+                            clientSecretInput.value = '';
+
                             existingAccountSuggestion.style.display = 'none';
-                            
-                            // Show success message
+
                             const successMsg = document.createElement('div');
-                            successMsg.className = 'alert alert-success alert-dismissible fade show mt-2';
-                            successMsg.innerHTML = '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>@Localizer["CredentialsCopied"]';
+                            successMsg.className = 'alert alert-info alert-dismissible fade show mt-2';
+                            successMsg.innerHTML = '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                                '@Localizer["CredentialsCopied"]' + ' Client secret was not copied and must be entered manually.';
                             microsoft365Settings.insertBefore(successMsg, microsoft365Settings.firstChild.nextSibling);
-                            
+
                             setTimeout(() => {
                                 successMsg.remove();
-                            }, 3000);
+                            }, 5000);
                         } else {
                             alert('@Localizer["ErrorCopyingCredentials"]: ' + (data.message || 'Unknown error'));
                         }

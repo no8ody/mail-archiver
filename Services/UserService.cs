@@ -250,7 +250,19 @@ namespace MailArchiver.Services
                 return false;
             }
 
-            return VerifyPassword(password, user.PasswordHash);
+            var (isValid, upgradedHash) = VerifyPassword(password, user.PasswordHash);
+            if (!isValid)
+                return false;
+
+            if (!string.IsNullOrEmpty(upgradedHash) && upgradedHash != user.PasswordHash)
+            {
+                user.PasswordHash = upgradedHash;
+                _context.Users.Update(user);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Upgraded legacy password hash for user {Username} (ID: {UserId})", user.Username, user.Id);
+            }
+
+            return true;
         }
 
         public async Task<bool> SetUserActiveStatusAsync(int id, bool isActive)
@@ -386,30 +398,92 @@ namespace MailArchiver.Services
             return await _context.Users.CountAsync(u => u.IsAdmin && u.IsActive);
         }
 
+        private const int PasswordSaltSize = 16;
+        private const int PasswordKeySize = 32;
+        private const int PasswordIterations = 210000;
+        private const string PasswordHashPrefix = "pbkdf2-sha256";
+
         public string HashPassword(string password)
         {
-            using (var sha256 = SHA256.Create())
-            {
-                var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
-                return Convert.ToBase64String(hashedBytes);
-            }
+            return HashSecret(password);
         }
 
         private string HashBackupCode(string backupCode)
         {
-            using (var sha256 = SHA256.Create())
-            {
-                var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(backupCode));
-                return Convert.ToBase64String(hashedBytes);
-            }
+            return HashSecret(backupCode);
         }
 
         #region Password Hashing
 
-        private bool VerifyPassword(string password, string hash)
+        private static string HashSecret(string secret)
         {
-            var hashedInput = HashPassword(password);
-            return hashedInput == hash;
+            var salt = RandomNumberGenerator.GetBytes(PasswordSaltSize);
+            var derived = Rfc2898DeriveBytes.Pbkdf2(secret, salt, PasswordIterations, HashAlgorithmName.SHA256, PasswordKeySize);
+            return $"{PasswordHashPrefix}${PasswordIterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(derived)}";
+        }
+
+        private (bool IsValid, string? UpgradedHash) VerifyPassword(string password, string hash)
+        {
+            if (string.IsNullOrWhiteSpace(hash))
+                return (false, null);
+
+            if (TryVerifyPbkdf2Hash(password, hash, out var requiresUpgrade) && !requiresUpgrade)
+                return (true, null);
+
+            if (TryVerifyPbkdf2Hash(password, hash, out requiresUpgrade))
+                return (true, HashPassword(password));
+
+            if (VerifyLegacySha256(password, hash))
+                return (true, HashPassword(password));
+
+            return (false, null);
+        }
+
+        private bool VerifyBackupCode(string backupCode, string storedHash)
+        {
+            if (string.IsNullOrWhiteSpace(storedHash))
+                return false;
+
+            return TryVerifyPbkdf2Hash(backupCode, storedHash, out _) || VerifyLegacySha256(backupCode, storedHash);
+        }
+
+        private static bool TryVerifyPbkdf2Hash(string secret, string hash, out bool requiresUpgrade)
+        {
+            requiresUpgrade = false;
+
+            var parts = hash.Split('$', StringSplitOptions.None);
+            if (parts.Length != 4 || !string.Equals(parts[0], PasswordHashPrefix, StringComparison.Ordinal))
+                return false;
+
+            if (!int.TryParse(parts[1], out var iterations) || iterations <= 0)
+                return false;
+
+            byte[] salt;
+            byte[] expected;
+            try
+            {
+                salt = Convert.FromBase64String(parts[2]);
+                expected = Convert.FromBase64String(parts[3]);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+
+            var actual = Rfc2898DeriveBytes.Pbkdf2(secret, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+            var valid = CryptographicOperations.FixedTimeEquals(actual, expected);
+            requiresUpgrade = valid && iterations < PasswordIterations;
+            return valid;
+        }
+
+        private static bool VerifyLegacySha256(string secret, string hash)
+        {
+            using var sha256 = SHA256.Create();
+            var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(secret));
+            var legacyHash = Convert.ToBase64String(hashedBytes);
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(legacyHash),
+                Encoding.UTF8.GetBytes(hash));
         }
 
         #endregion
@@ -475,8 +549,11 @@ namespace MailArchiver.Services
             if (user == null)
                 return false;
 
-            // Hash the backup codes before storing them
-            var hashedCodes = string.Join(";", backupCodes.Split(';').Select(code => HashBackupCode(code)));
+            var hashedCodes = string.Join(";", backupCodes
+                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(code => code.Trim())
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(HashBackupCode));
             user.TwoFactorBackupCodes = hashedCodes;
             _context.Users.Update(user);
 
@@ -505,10 +582,10 @@ namespace MailArchiver.Services
             if (user?.TwoFactorBackupCodes == null)
                 return false;
 
-            var backupCodes = user.TwoFactorBackupCodes.Split(';');
-            var hashedInputCode = HashBackupCode(backupCode);
-            // Use case-insensitive comparison for backup codes
-            return backupCodes.Contains(hashedInputCode, StringComparer.OrdinalIgnoreCase);
+            var backupCodes = user.TwoFactorBackupCodes
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            return backupCodes.Any(storedHash => VerifyBackupCode(backupCode, storedHash));
         }
 
         public async Task<bool> RemoveUsedBackupCodeAsync(int userId, string usedCode)
@@ -517,10 +594,14 @@ namespace MailArchiver.Services
             if (user?.TwoFactorBackupCodes == null)
                 return false;
 
-            var backupCodes = user.TwoFactorBackupCodes.Split(';').ToList();
-            var hashedUsedCode = HashBackupCode(usedCode);
-            if (backupCodes.Remove(hashedUsedCode))
+            var backupCodes = user.TwoFactorBackupCodes
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+
+            var index = backupCodes.FindIndex(storedHash => VerifyBackupCode(usedCode, storedHash));
+            if (index >= 0)
             {
+                backupCodes.RemoveAt(index);
                 user.TwoFactorBackupCodes = string.Join(";", backupCodes);
                 _context.Users.Update(user);
 

@@ -107,8 +107,6 @@ namespace MailArchiver.Controllers
             {
                 _logger.LogWarning("ModelState is invalid. Errors: {Errors}",
                     string.Join(", ", ModelState.SelectMany(x => x.Value.Errors.Select(e => $"{x.Key}: {e.ErrorMessage}"))));
-                // Pass the password back to the view for form retention
-                ViewBag.Password = password;
                 return View(model);
             }
 

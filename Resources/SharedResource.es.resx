@@ -2244,7 +2244,10 @@
   <data name="Mismatch" xml:space="preserve">
     <value>No coincide</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>No se encontraron carpetas en el servidor</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>No se encontraron carpetas en el servidor</value>
   </data>
   <data name="PasswordChangeRequired" xml:space="preserve">
@@ -2462,5 +2465,20 @@
   </data>
   <data name="DetailsLabel" xml:space="preserve">
     <value>Detalles</value>
+  </data>
+  <data name="DefaultArchiveFoldersConfigured" xml:space="preserve">
+    <value>De forma predeterminada, para esta cuenta solo se archivan Bandeja de entrada y Enviados.</value>
+  </data>
+  <data name="DefaultArchiveFoldersManualReview" xml:space="preserve">
+    <value>La cuenta se ha creado, pero no se han podido detectar completamente las carpetas estándar de Bandeja de entrada y Enviados (detectado: {0}). Abra la página de edición, use "{1}" y ajuste manualmente las carpetas excluidas.</value>
+  </data>
+  <data name="DefaultArchiveFoldersLoadFailed" xml:space="preserve">
+    <value>La cuenta se ha creado, pero no se han podido cargar automáticamente las carpetas disponibles. La cuenta se ha dejado deshabilitada para evitar archivar carpetas inesperadas. Abra la página de edición, use "{0}" y ajuste manualmente las carpetas excluidas.</value>
+  </data>
+  <data name="NoMatchingDefaultFoldersDetected" xml:space="preserve">
+    <value>ninguna</value>
+  </data>
+  <data name="DefaultArchiveFoldersHint" xml:space="preserve">
+    <value>Las cuentas nuevas archivan por defecto solo Bandeja de entrada y Enviados cuando esas carpetas pueden detectarse automáticamente. La detección de carpetas comprueba nombres estándar habituales en los idiomas compatibles, independientemente del idioma de la interfaz seleccionado. Si su proveedor usa otros nombres, utilice {0} y añada en el cuadro de texto inferior las carpetas que desea excluir.</value>
   </data>
 </root>
