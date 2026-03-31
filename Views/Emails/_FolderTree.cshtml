@@ -1,3 +1,4 @@
+@inject Microsoft.Extensions.Localization.IStringLocalizer<MailArchiver.SharedResource> Localizer
 @using System
 @using System.Linq
 @model List<MailArchiver.Models.ViewModels.FolderTreeNode>
@@ -44,7 +45,7 @@
     <div class="folder-tree-item @(isSelected ? "selected" : "")" data-folder="@node.FullPath" style="@indentStyle">
         @if (hasChildren)
         {
-            <span class="folder-tree-toggle @(shouldExpand ? "expanded" : "")" role="button" tabindex="0" aria-label="Toggle folder">
+            <span class="folder-tree-toggle @(shouldExpand ? "expanded" : "")" role="button" tabindex="0" aria-label="@Localizer["ToggleDropdown"]">
                 <i class="bi bi-chevron-right"></i>
             </span>
         }

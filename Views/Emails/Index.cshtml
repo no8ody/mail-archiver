@@ -116,11 +116,6 @@
         font-size: 0.875rem;
     }
 
-    .folder-tree-hint {
-        margin-top: 0.35rem;
-        font-size: 0.8rem;
-        color: #6c757d;
-    }
 
     .folder-tree-offcanvas {
         background-color: #fff;
@@ -162,7 +157,6 @@
 
     [data-theme="dark"] .folder-tree-toggle,
     [data-theme="dark"] .folder-tree-empty,
-    [data-theme="dark"] .folder-tree-hint,
     [data-theme="dark"] .folder-tree-count,
     [data-theme="dark"] .folder-tree-empty .text-muted {
         color: #9ca3af !important;
@@ -386,7 +380,6 @@
                         <div class="folder-tree-empty">
                             <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
                             <span class="text-muted">Choose an account in the search bar above to load folders.</span>
-                            <div class="folder-tree-hint">The account selector is in the search form, not inside this sidebar.</div>
                         </div>
                     }
                     else if (folderTree.Any())
@@ -397,7 +390,7 @@
                     {
                         <div class="folder-tree-empty">
                             <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                            <span class="text-muted">@Localizer["NoFolders"]</span>
+                            <span class="text-muted">@Localizer["NoFoldersFound"]</span>
                         </div>
                     }
                 </div>
@@ -815,7 +808,6 @@
                 <div class="folder-tree-empty">
                     <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
                     <span class="text-muted">Choose an account in the search bar above to load folders.</span>
-                    <div class="folder-tree-hint">The account selector is in the search form, not inside this panel.</div>
                 </div>
             }
             else if (folderTree.Any())
@@ -826,7 +818,7 @@
             {
                 <div class="folder-tree-empty">
                     <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                    <span class="text-muted">@Localizer["NoFolders"]</span>
+                    <span class="text-muted">@Localizer["NoFoldersFound"]</span>
                 </div>
             }
         </div>
