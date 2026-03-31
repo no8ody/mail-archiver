@@ -2237,7 +2237,10 @@
   <data name="Mismatch" xml:space="preserve">
     <value>Nem egyezik</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>Nincsenek mappák a szerveren</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>Nincsenek mappák a szerveren</value>
   </data>
   <data name="PasswordChangeRequired" xml:space="preserve">

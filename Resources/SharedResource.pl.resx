@@ -2256,7 +2256,10 @@
   <data name="CouldNotLoadFolders" xml:space="preserve">
     <value>Nie można załadować folderów z serwera</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>Nie znaleziono folderów na serwerze</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>Nie znaleziono folderów na serwerze</value>
   </data>
   <data name="ComplianceModeStarted" xml:space="preserve">

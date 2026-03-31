@@ -2245,7 +2245,10 @@
   <data name="Mismatch" xml:space="preserve">
     <value>Incohérences</value>
   </data>
-  <data name="NoFoldersFound" xml:space="preserve">
+  <data name="NoFolders" xml:space="preserve">
+    <value>Aucun dossier trouvé sur le serveur</value>
+  </data>
+<data name="NoFoldersFound" xml:space="preserve">
     <value>Aucun dossier trouvé sur le serveur</value>
   </data>
   <data name="PasswordChangeRequired" xml:space="preserve">
