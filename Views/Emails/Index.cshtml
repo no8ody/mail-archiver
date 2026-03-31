@@ -42,6 +42,7 @@
         cursor: pointer;
         border-left: 3px solid transparent;
         transition: all 0.15s ease-in-out;
+        color: inherit;
     }
 
     .folder-tree-item:hover {
@@ -113,6 +114,81 @@
         text-align: center;
         color: #6c757d;
         font-size: 0.875rem;
+    }
+
+    .folder-tree-hint {
+        margin-top: 0.35rem;
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+    .folder-tree-offcanvas {
+        background-color: #fff;
+        color: #212529;
+    }
+
+    .folder-tree-offcanvas .offcanvas-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    [data-theme="dark"] .folder-tree-panel {
+        background-color: #1f2937;
+        border-color: #374151;
+    }
+
+    [data-theme="dark"] .folder-tree-header {
+        background-color: #111827;
+        border-bottom-color: #374151;
+        color: #e5e7eb;
+    }
+
+    [data-theme="dark"] .folder-tree-item {
+        color: #e5e7eb;
+    }
+
+    [data-theme="dark"] .folder-tree-item:hover {
+        background-color: #2b3545;
+    }
+
+    [data-theme="dark"] .folder-tree-item.selected {
+        background-color: rgba(13, 110, 253, 0.22);
+        border-left-color: #60a5fa;
+    }
+
+    [data-theme="dark"] .folder-tree-item.selected:hover {
+        background-color: rgba(13, 110, 253, 0.3);
+    }
+
+    [data-theme="dark"] .folder-tree-toggle,
+    [data-theme="dark"] .folder-tree-empty,
+    [data-theme="dark"] .folder-tree-hint,
+    [data-theme="dark"] .folder-tree-count,
+    [data-theme="dark"] .folder-tree-empty .text-muted {
+        color: #9ca3af !important;
+    }
+
+    [data-theme="dark"] .folder-tree-count {
+        background-color: #374151;
+    }
+
+    [data-theme="dark"] .folder-tree-item.selected .folder-tree-count {
+        background-color: rgba(13, 110, 253, 0.28);
+        color: #bfdbfe;
+    }
+
+    [data-theme="dark"] .folder-tree-offcanvas {
+        background-color: #1f2937;
+        color: #e5e7eb;
+    }
+
+    [data-theme="dark"] .folder-tree-offcanvas .offcanvas-header {
+        background-color: #111827;
+        border-bottom-color: #374151;
+    }
+
+    [data-theme="dark"] .folder-tree-offcanvas .btn-close {
+        filter: invert(1) grayscale(100%) brightness(200%);
     }
 
     @@media (max-width: 991.98px) {
@@ -309,7 +385,8 @@
                     {
                         <div class="folder-tree-empty">
                             <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                            <span class="text-muted">Select an account to browse folders</span>
+                            <span class="text-muted">Choose an account in the search bar above to load folders.</span>
+                            <div class="folder-tree-hint">The account selector is in the search form, not inside this sidebar.</div>
                         </div>
                     }
                     else if (folderTree.Any())
@@ -724,7 +801,7 @@
     </div>
 </div>
 
-<div class="offcanvas offcanvas-start" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
+<div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
     <div class="offcanvas-header">
         <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
             <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
@@ -737,7 +814,8 @@
             {
                 <div class="folder-tree-empty">
                     <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                    <span class="text-muted">Select an account to browse folders</span>
+                    <span class="text-muted">Choose an account in the search bar above to load folders.</span>
+                    <div class="folder-tree-hint">The account selector is in the search form, not inside this panel.</div>
                 </div>
             }
             else if (folderTree.Any())
