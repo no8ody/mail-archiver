@@ -2481,4 +2481,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>Las cuentas nuevas archivan por defecto solo Bandeja de entrada y Enviados cuando esas carpetas pueden detectarse automáticamente. La detección de carpetas comprueba nombres estándar habituales en los idiomas compatibles, independientemente del idioma de la interfaz seleccionado. Si su proveedor usa otros nombres, utilice {0} y añada en el cuadro de texto inferior las carpetas que desea excluir.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Límite de tasa alcanzado</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Sincronización pausada por límite de ancho de banda. Reanudará automáticamente.</value>
+  </data>
 </root>

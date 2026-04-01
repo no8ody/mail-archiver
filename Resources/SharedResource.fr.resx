@@ -2482,4 +2482,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>Les nouveaux comptes archivent par défaut uniquement Boîte de réception et Éléments envoyés lorsque ces dossiers peuvent être détectés automatiquement. La détection des dossiers vérifie les noms de dossiers standard courants dans les langues prises en charge, indépendamment de la langue de l’interface sélectionnée. Si votre fournisseur utilise d’autres noms, utilisez {0} et ajoutez dans la zone de texte ci-dessous les dossiers à exclure.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Limite de débit atteint</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Synchronisation suspendue en raison de la limite de bande passante. Reprendra automatiquement.</value>
+  </data>
 </root>

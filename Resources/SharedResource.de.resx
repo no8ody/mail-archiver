@@ -2483,4 +2483,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>Neue Konten archivieren standardmäßig nur Posteingang und Gesendet, wenn diese Ordner automatisch erkannt werden können. Die Ordnererkennung prüft gängige Standardordnernamen über die unterstützten Sprachen hinweg – unabhängig von der eingestellten UI-Sprache. Wenn Ihr Anbieter andere Namen verwendet, nutzen Sie {0} und ergänzen Sie die Ordner, die ausgeschlossen werden sollen, im Textfeld darunter.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Rate-Limit erreicht</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Sync pausiert wegen Bandbreiten-Limit. Wird automatisch fortgesetzt.</value>
+  </data>
 </root>

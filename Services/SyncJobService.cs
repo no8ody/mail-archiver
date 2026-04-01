@@ -178,6 +178,46 @@ namespace MailArchiver.Services
             }
         }
 
+        public void CompleteJobRateLimited(string jobId, string? errorMessage = null)
+        {
+            if (_jobs.TryGetValue(jobId, out var job))
+            {
+                if (!job.Completed.HasValue)
+                {
+                    job.Status = SyncJobStatus.RateLimited;
+                    job.Completed = DateTime.UtcNow;
+                    job.ErrorMessage = errorMessage;
+                }
+                else if (!string.IsNullOrWhiteSpace(errorMessage) && string.IsNullOrWhiteSpace(job.ErrorMessage))
+                {
+                    job.ErrorMessage = errorMessage;
+                }
+
+                if (_activeAccountJobs.TryGetValue(job.MailAccountId, out var activeJobId) && activeJobId == jobId)
+                {
+                    _activeAccountJobs.TryRemove(job.MailAccountId, out _);
+                }
+
+                if (job.CancellationTokenSource != null)
+                {
+                    try
+                    {
+                        job.CancellationTokenSource.Dispose();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _logger.LogDebug("Token source for job {JobId} was already disposed during completion", jobId);
+                    }
+                    finally
+                    {
+                        job.CancellationTokenSource = null;
+                    }
+                }
+
+                _logger.LogWarning("Sync job {JobId} paused due to rate limit. Checkpoints saved for resume.", jobId);
+            }
+        }
+
         public bool CancelJob(string jobId)
         {
             if (_jobs.TryGetValue(jobId, out var job))

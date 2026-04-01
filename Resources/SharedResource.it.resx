@@ -2482,4 +2482,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>I nuovi account archiviano per impostazione predefinita solo Posta in arrivo e Posta inviata quando tali cartelle possono essere rilevate automaticamente. Il rilevamento delle cartelle controlla i nomi standard comuni nelle lingue supportate, indipendentemente dalla lingua dell’interfaccia selezionata. Se il provider usa nomi diversi, utilizzare {0} e aggiungere nella casella di testo sottostante le cartelle da escludere.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Limite di velocità raggiunto</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Sincronizzazione in pausa a causa del limite di banda. Riprenderà automaticamente.</value>
+  </data>
 </root>

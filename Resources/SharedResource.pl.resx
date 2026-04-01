@@ -2528,4 +2528,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>Nowe konta domyślnie archiwizują tylko Skrzynkę odbiorczą i Wysłane, gdy te foldery mogą zostać wykryte automatycznie. Wykrywanie folderów sprawdza typowe nazwy standardowych folderów we wszystkich obsługiwanych językach, niezależnie od wybranego języka interfejsu. Jeśli dostawca używa innych nazw, użyj {0} i dodaj w polu tekstowym poniżej foldery, które chcesz wykluczyć.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Limit prędkości osiągnięty</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Synchronizacja wstrzymana z powodu limitu przepustowości. Będzie kontynuowana automatycznie.</value>
+  </data>
 </root>

@@ -2474,4 +2474,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>Az új fiókok alapértelmezés szerint csak a Beérkezett üzenetek és az Elküldött elemek mappáit archiválják, ha ezek a mappák automatikusan felismerhetők. A mappafelismerés a támogatott nyelvek gyakori szabványos mappaneveit ellenőrzi, a kiválasztott felületnyelvtől függetlenül. Ha a szolgáltató más neveket használ, használja a(z) {0} lehetőséget, és adja hozzá az alábbi mezőben a kizárandó mappákat.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Sávszélső határ</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Szinkronizáció felfüggesztve a sávszélességi korláton miatt. Automatikusan folytatódik.</value>
+  </data>
 </root>
