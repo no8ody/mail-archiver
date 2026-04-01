@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MailArchiver.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace MailArchiver.Services.Sync;
 
