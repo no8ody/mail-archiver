@@ -2482,4 +2482,10 @@
   <data name="DefaultArchiveFoldersHint" xml:space="preserve">
     <value>Nieuwe accounts archiveren standaard alleen Postvak IN en Verzonden wanneer deze mappen automatisch kunnen worden herkend. De mapdetectie controleert veelvoorkomende standaardmapnamen in de ondersteunde talen, onafhankelijk van de geselecteerde UI-taal. Als uw provider andere namen gebruikt, gebruik dan {0} en voeg in het onderstaande tekstvak de mappen toe die u wilt uitsluiten.</value>
   </data>
+  <data name="RateLimited" xml:space="preserve">
+    <value>Bandbreedtebeperking bereikt</value>
+  </data>
+  <data name="SyncJobRateLimited" xml:space="preserve">
+    <value>Synchronisatie gepauzeerd door bandbreedtebeperking. Wordt automatisch hervat.</value>
+  </data>
 </root>

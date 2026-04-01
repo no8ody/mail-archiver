@@ -27,8 +27,10 @@ namespace MailArchiver.Services.Providers
         private readonly ILogger<ImapEmailService> _logger;
         private readonly EmailCoreService _coreService;
         private readonly ISyncJobService _syncJobService;
+        private readonly IBandwidthService _bandwidthService;
         private readonly BatchOperationOptions _batchOptions;
         private readonly MailSyncOptions _mailSyncOptions;
+        private readonly BandwidthTrackingOptions _bandwidthOptions;
         private readonly DateTimeHelper _dateTimeHelper;
 
         public ImapEmailService(
@@ -36,16 +38,20 @@ namespace MailArchiver.Services.Providers
             ILogger<ImapEmailService> logger,
             EmailCoreService coreService,
             ISyncJobService syncJobService,
+            IBandwidthService bandwidthService,
             IOptions<BatchOperationOptions> batchOptions,
             IOptions<MailSyncOptions> mailSyncOptions,
+            IOptions<BandwidthTrackingOptions> bandwidthOptions,
             DateTimeHelper dateTimeHelper)
         {
             _context = context;
             _logger = logger;
             _coreService = coreService;
             _syncJobService = syncJobService;
+            _bandwidthService = bandwidthService;
             _batchOptions = batchOptions.Value;
             _mailSyncOptions = mailSyncOptions.Value;
+            _bandwidthOptions = bandwidthOptions.Value;
             _dateTimeHelper = dateTimeHelper;
         }
 
@@ -88,10 +94,38 @@ namespace MailArchiver.Services.Providers
             var newEmails = 0;
             var failedEmails = 0;
             var deletedEmails = 0;
+            var wasRateLimited = false;
 
             try
             {
                 ThrowIfSyncCancellationRequested(jobId, cancellationToken);
+
+                if (_bandwidthOptions.Enabled)
+                {
+                    var limitReached = await _bandwidthService.IsLimitReachedAsync(account.Id);
+                    if (limitReached)
+                    {
+                        var status = await _bandwidthService.GetStatusAsync(account.Id);
+                        _logger.LogWarning("Sync skipped for account {AccountName} - bandwidth limit reached. Downloaded: {DownloadedMB:F2} MB / {LimitMB:F2} MB. Reset at: {ResetTime}",
+                            account.Name,
+                            status.BytesDownloaded / (1024.0 * 1024.0),
+                            status.DailyLimitBytes / (1024.0 * 1024.0),
+                            status.ResetTime);
+
+                        if (jobId != null)
+                        {
+                            _syncJobService.CompleteJobRateLimited(jobId, "Bandwidth limit reached - sync paused");
+                        }
+
+                        return;
+                    }
+
+                    var hasIncompleteCheckpoints = await _bandwidthService.HasIncompleteCheckpointsAsync(account.Id);
+                    if (hasIncompleteCheckpoints)
+                    {
+                        _logger.LogInformation("Found incomplete checkpoints for account {AccountName} - resuming from last position", account.Name);
+                    }
+                }
                 await ConnectWithFallbackAsync(client, account.ImapServer, account.ImapPort ?? 993, account.UseSSL, account.Name);
                 await AuthenticateClientAsync(client, account);
                 _logger.LogInformation("Connected to IMAP server for {AccountName}", account.Name);
@@ -136,6 +170,26 @@ namespace MailArchiver.Services.Providers
                         newEmails += folderResult.NewEmails;
                         failedEmails += folderResult.FailedEmails;
 
+                        if (folderResult.WasRateLimited)
+                        {
+                            wasRateLimited = true;
+
+                            if (jobId != null)
+                            {
+                                _syncJobService.UpdateJobProgress(jobId, job =>
+                                {
+                                    job.ProcessedFolders = processedFolders;
+                                    job.ProcessedEmails = processedEmails;
+                                    job.NewEmails = newEmails;
+                                    job.FailedEmails = failedEmails;
+                                });
+                            }
+
+                            _logger.LogWarning("Rate limit hit during folder {FolderName} for account {AccountName}. Sync will pause and checkpoints will be preserved.",
+                                folder.FullName, account.Name);
+                            break;
+                        }
+
                         processedFolders++;
 
                         if (jobId != null)
@@ -155,6 +209,19 @@ namespace MailArchiver.Services.Providers
                             folder.FullName, account.Name, ex.Message);
                         failedEmails++;
                     }
+                }
+
+                if (wasRateLimited)
+                {
+                    await client.DisconnectAsync(true);
+
+                    if (jobId != null)
+                    {
+                        _syncJobService.CompleteJobRateLimited(jobId,
+                            $"Bandwidth limit reached during sync. Processed: {processedEmails}, New: {newEmails}. Sync will resume from checkpoint.");
+                    }
+
+                    return;
                 }
 
                 if (account.DeleteAfterDays.HasValue && account.DeleteAfterDays.Value > 0)
@@ -185,6 +252,12 @@ namespace MailArchiver.Services.Providers
                     var nowUtc = DateTime.UtcNow;
                     trackedAccount.LastSync = nowUtc;
                     await _context.SaveChangesAsync();
+                }
+
+                if (_bandwidthOptions.Enabled)
+                {
+                    await _bandwidthService.ClearCheckpointsAsync(account.Id);
+                    _logger.LogDebug("Cleared sync checkpoints for account {AccountName} after successful sync", account.Name);
                 }
 
                 if (failedEmails > 0)
@@ -1031,7 +1104,6 @@ namespace MailArchiver.Services.Providers
                     _logger.LogInformation("Found {Count} messages to process in folder {FolderName} for account: {AccountName}",
                         uids.Count, folder.FullName, account.Name);
 
-                    result.ProcessedEmails = uids.Count;
 
                     // Process emails in smaller chunks to reduce memory usage
                     for (int i = 0; i < uids.Count; i += _batchOptions.BatchSize)
@@ -1097,10 +1169,58 @@ namespace MailArchiver.Services.Providers
                                     // This prevents PostgreSQL UTF-8 encoding errors (0x00 is invalid in UTF-8)
                                     PreCleanMessage(message);
 
+                                    long messageSize = 0;
+                                    if (_bandwidthOptions.Enabled)
+                                    {
+                                        try
+                                        {
+                                            var messageString = message.ToString();
+                                            messageSize = System.Text.Encoding.UTF8.GetByteCount(messageString);
+
+                                            var (_, limitReached) = await _bandwidthService.TrackUsageAndCheckLimitAsync(account.Id, messageSize);
+                                            result.BytesDownloaded += messageSize;
+
+                                            if (limitReached)
+                                            {
+                                                _logger.LogWarning("Bandwidth limit reached during sync of folder {FolderName} for account {AccountName}. Saving checkpoint and pausing sync. Processed: {Processed}, New: {New}",
+                                                    folder.FullName, account.Name, result.ProcessedEmails, result.NewEmails);
+
+                                                await _bandwidthService.UpdateCheckpointAsync(
+                                                    account.Id, folder.FullName,
+                                                    message.Date.DateTime, message.MessageId,
+                                                    messageSize);
+
+                                                result.WasRateLimited = true;
+                                                return result;
+                                            }
+                                        }
+                                        catch (Exception bwEx)
+                                        {
+                                            _logger.LogWarning(bwEx, "Error tracking bandwidth usage");
+                                        }
+                                    }
+
                                     var isNew = await _coreService.ArchiveEmailAsync(account, message, isOutgoing, folder.FullName);
                                     if (isNew)
                                     {
                                         result.NewEmails++;
+                                    }
+
+                                    result.ProcessedEmails++;
+
+                                    if (_bandwidthOptions.Enabled && messageSize > 0)
+                                    {
+                                        try
+                                        {
+                                            await _bandwidthService.UpdateCheckpointAsync(
+                                                account.Id, folder.FullName,
+                                                message.Date.DateTime, message.MessageId,
+                                                messageSize);
+                                        }
+                                        catch (Exception cpEx)
+                                        {
+                                            _logger.LogWarning(cpEx, "Error updating checkpoint");
+                                        }
                                     }
                                 }
                             }
@@ -1183,6 +1303,18 @@ namespace MailArchiver.Services.Providers
                         {
                             // Add a small delay between individual emails within the last batch to avoid overwhelming the server
                             await Task.Delay(_batchOptions.PauseBetweenEmailsMs);
+                        }
+                    }
+
+                    if (_bandwidthOptions.Enabled && result.ProcessedEmails > 0)
+                    {
+                        try
+                        {
+                            await _bandwidthService.MarkFolderCompletedAsync(account.Id, folder.FullName);
+                        }
+                        catch (Exception cpEx)
+                        {
+                            _logger.LogWarning(cpEx, "Error marking folder checkpoint as completed");
                         }
                     }
                 }
@@ -1314,6 +1446,8 @@ namespace MailArchiver.Services.Providers
             public int ProcessedEmails { get; set; }
             public int NewEmails { get; set; }
             public int FailedEmails { get; set; }
+            public long BytesDownloaded { get; set; }
+            public bool WasRateLimited { get; set; }
         }
 
         #endregion
