@@ -62,9 +62,9 @@ public sealed class ProcessedMessageLedger : IProcessedMessageLedger
         command.CommandText = @"
 SELECT EXISTS (
     SELECT 1
-    FROM \"ProcessedMessageLedger\"
-    WHERE \"MailAccountId\" = @mailAccountId
-      AND \"NormalizedMessageKey\" = @normalizedMessageKey
+    FROM ""ProcessedMessageLedger""
+    WHERE ""MailAccountId"" = @mailAccountId
+      AND ""NormalizedMessageKey"" = @normalizedMessageKey
 );";
 
         AddParameter(command, "mailAccountId", DbType.Int32, mailAccountId);
@@ -88,11 +88,11 @@ SELECT EXISTS (
 
         await using var command = await CreateCommandAsync(cancellationToken);
         command.CommandText = @"
-INSERT INTO \"ProcessedMessageLedger\"
-    (\"MailAccountId\", \"NormalizedMessageKey\", \"OriginalMessageId\", \"ContentHash\", \"FirstSeenAtUtc\")
+INSERT INTO ""ProcessedMessageLedger""
+    (""MailAccountId"", ""NormalizedMessageKey"", ""OriginalMessageId"", ""ContentHash"", ""FirstSeenAtUtc"")
 VALUES
     (@mailAccountId, @normalizedMessageKey, @originalMessageId, @contentHash, @firstSeenAtUtc)
-ON CONFLICT (\"MailAccountId\", \"NormalizedMessageKey\") DO NOTHING;";
+ON CONFLICT (""MailAccountId"", ""NormalizedMessageKey"") DO NOTHING;";
 
         AddParameter(command, "mailAccountId", DbType.Int32, mailAccountId);
         AddParameter(command, "normalizedMessageKey", DbType.String, normalizedKey);
