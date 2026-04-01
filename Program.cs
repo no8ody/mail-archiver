@@ -567,6 +567,9 @@ builder.Services.AddScoped<MailArchiver.Services.Providers.IProviderEmailService
 builder.Services.AddScoped<IAuthenticationService, CookieAuthenticationService>();
 builder.Services.AddScoped<OAuthAuthenticationService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<MailArchiver.Services.Sync.DbExceptionClassifier>();
+builder.Services.AddScoped<MailArchiver.Services.Sync.DbConnectivityCircuitBreaker>();
+builder.Services.AddScoped<MailArchiver.Services.Sync.IProcessedMessageLedger, MailArchiver.Services.Sync.ProcessedMessageLedger>();
 builder.Services.AddSingleton<ISyncJobService, SyncJobService>(); // NEUE SERVICE
 
 // Register BatchRestoreService as singleton and hosted service - MUST be the same instance

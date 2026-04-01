@@ -13,7 +13,7 @@ namespace MailArchiver.Services.Sync;
 /// </summary>
 public sealed class DbConnectivityCircuitBreaker
 {
-    private readonly ILogger _logger;
+    private readonly ILogger<DbConnectivityCircuitBreaker> _logger;
     private readonly DbExceptionClassifier _classifier;
     private readonly int _maxConsecutiveMessageDbFailures;
     private readonly int _maxDbFailedFolders;
@@ -22,7 +22,7 @@ public sealed class DbConnectivityCircuitBreaker
     private int _failedFolders;
 
     public DbConnectivityCircuitBreaker(
-        ILogger logger,
+        ILogger<DbConnectivityCircuitBreaker> logger,
         DbExceptionClassifier classifier,
         int maxConsecutiveMessageDbFailures = 5,
         int maxDbFailedFolders = 2)
