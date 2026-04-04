@@ -2,9 +2,16 @@
 @model MailArchiver.Models.SelectedEmailsExportJob
 @{
     ViewData["Title"] = Localizer["SelectedEmailsExportStatusTitle"];
+    var shouldAutoRefresh = Model.Status == SelectedEmailsExportJobStatus.Running || Model.Status == SelectedEmailsExportJobStatus.Queued;
 }
 
 <div class="container">
+    <div id="selectedEmailsExportStatusLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-interval="@(shouldAutoRefresh ? "5000" : null)">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1>@Localizer["SelectedEmailsExportStatusTitle"]</h1>
         <div>
@@ -152,57 +159,8 @@
             }
         </div>
     </div>
+    </div>
 </div>
-
-@if (Model.Status == SelectedEmailsExportJobStatus.Running || Model.Status == SelectedEmailsExportJobStatus.Queued)
-{
-    @section Scripts {
-        <script>
-            let refreshTimer;
-            let countdownTimer;
-            let countdown = 5;
-            
-            function startRefresh() {
-                refreshTimer = setTimeout(function() { 
-                    // Preserve jobId in the URL when reloading
-                    const currentUrl = new URL(window.location.href);
-                    location.reload(); 
-                }, 5000);
-                
-                countdownTimer = setInterval(function() {
-                    countdown--;
-                    document.title = `(${countdown}s) ${'@Localizer["SelectedEmailsExportStatusTitle"]'} - @Model.JobId.Substring(0, 8)`;
-                    if (countdown <= 0) { 
-                        clearInterval(countdownTimer); 
-                        countdown = 5; // Reset for next cycle
-                    }
-                }, 1000);
-            }
-            
-            function stopRefresh() {
-                if (refreshTimer) {
-                    clearTimeout(refreshTimer);
-                }
-                if (countdownTimer) {
-                    clearInterval(countdownTimer);
-                }
-                document.title = '@Localizer["SelectedEmailsExportStatusTitle"]';
-            }
-            
-            // Start the refresh cycle
-            startRefresh();
-            
-            // Stop refresh if page becomes hidden (user navigates away)
-            document.addEventListener('visibilitychange', function() {
-                if (document.hidden) {
-                    stopRefresh();
-                } else if ('@Model.Status' === 'Running' || '@Model.Status' === 'Queued') {
-                    startRefresh();
-                }
-            });
-        </script>
-    }
-}
 
 <!-- Bootstrap Modal for Cancel Confirmation -->
 <div class="modal fade" id="cancelExportModal" tabindex="-1" aria-labelledby="cancelExportModalLabel" aria-hidden="true">

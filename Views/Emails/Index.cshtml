@@ -113,6 +113,13 @@
         </div>
     </div>
 
+    <div id="emailsLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-interval="30000">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
+
     @* Batch Operation Information *@
     @if (Model.ShowSelectionControls)
     {
@@ -625,12 +632,14 @@
         </div>
     </div>
 }
+    </div>
 
 @section Scripts {
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        (function () {
+            function initializeEmailsPage() {
             console.log("Email selection script initialized");
-            const timezoneInput = document.getElementById('userTimezone');
+                const timezoneInput = document.getElementById('userTimezone');
             if (timezoneInput) {
                 timezoneInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
             }
@@ -638,7 +647,8 @@
             // Auto-submit form when page size changes
             const pageSizeSelect = document.getElementById('pageSizeSelect');
             const pageSizeHidden = document.getElementById('pageSizeHidden');
-            if (pageSizeSelect && pageSizeHidden) {
+            if (pageSizeSelect && pageSizeHidden && pageSizeSelect.dataset.listenerInitialized !== 'true') {
+                pageSizeSelect.dataset.listenerInitialized = 'true';
                 pageSizeSelect.addEventListener('change', function() {
                     console.log("Page size changed to:", this.value);
                     // Sync hidden field
@@ -649,6 +659,11 @@
 
             function initializeFolderTreeHandlers() {
                 document.querySelectorAll('.folder-tree-item').forEach(function(item) {
+                    if (item.dataset.listenerInitialized === 'true') {
+                        return;
+                    }
+
+                    item.dataset.listenerInitialized = 'true';
                     item.addEventListener('click', function(e) {
                         if (e.target.closest('.folder-tree-toggle')) {
                             return;
@@ -665,6 +680,11 @@
                 });
 
                 document.querySelectorAll('.folder-tree-toggle').forEach(function(toggle) {
+                    if (toggle.dataset.listenerInitialized === 'true') {
+                        return;
+                    }
+
+                    toggle.dataset.listenerInitialized = 'true';
                     toggle.addEventListener('click', function(e) {
                         e.stopPropagation();
                         const parent = this.closest('.folder-tree-item');
@@ -697,7 +717,9 @@
                     directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
                 }
                 
-                accountSelect.addEventListener('change', function() {
+                if (accountSelect.dataset.listenerInitialized !== 'true') {
+                    accountSelect.dataset.listenerInitialized = 'true';
+                    accountSelect.addEventListener('change', function() {
                     const accountId = this.value;
                     console.log("Account selection changed to:", accountId);
                     
@@ -738,7 +760,8 @@
                                 directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
                             });
                     }
-                });
+                    });
+                }
             }
 
             // Configuration from ViewBag
@@ -830,7 +853,8 @@
             }
 
             // Toggle selection mode using form submit
-            if (disableSelectionModeToggle) {
+            if (disableSelectionModeToggle && disableSelectionModeToggle.dataset.listenerInitialized !== 'true') {
+                disableSelectionModeToggle.dataset.listenerInitialized = 'true';
                 disableSelectionModeToggle.addEventListener('change', function() {
                     console.log("Selection mode disabled: " + this.checked);
                     clearStoredSelections();
@@ -920,6 +944,11 @@
                     }
                     
                     // Individual checkbox change
+                    if (checkbox.dataset.listenerInitialized === 'true') {
+                        return;
+                    }
+
+                    checkbox.dataset.listenerInitialized = 'true';
                     checkbox.addEventListener('change', function() {
                         const isChecked = this.checked;
                         const emailId = this.value;
@@ -942,7 +971,8 @@
             }
 
             // Select/deselect all checkboxes on current page
-            if (selectAllCheckbox) {
+            if (selectAllCheckbox && selectAllCheckbox.dataset.listenerInitialized !== 'true') {
+                selectAllCheckbox.dataset.listenerInitialized = 'true';
                 selectAllCheckbox.addEventListener('change', function() {
                     const isChecked = this.checked;
                     const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
@@ -971,7 +1001,8 @@
             }
 
             // Select all button - only for current page
-            if (selectAllBtn) {
+            if (selectAllBtn && selectAllBtn.dataset.listenerInitialized !== 'true') {
+                selectAllBtn.dataset.listenerInitialized = 'true';
                 selectAllBtn.addEventListener('click', function() {
                     const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
                     const currentPageIds = Array.from(emailCheckboxes).map(cb => cb.value);
@@ -998,7 +1029,8 @@
             }
 
             // Deselect all button - clears all selections across all pages
-            if (deselectAllBtn) {
+            if (deselectAllBtn && deselectAllBtn.dataset.listenerInitialized !== 'true') {
+                deselectAllBtn.dataset.listenerInitialized = 'true';
                 deselectAllBtn.addEventListener('click', function() {
                     clearStoredSelections();
                     const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
@@ -1010,7 +1042,8 @@
             }
 
             // Batch restore button
-            if (batchRestoreBtn) {
+            if (batchRestoreBtn && batchRestoreBtn.dataset.listenerInitialized !== 'true') {
+                batchRestoreBtn.dataset.listenerInitialized = 'true';
                 batchRestoreBtn.addEventListener('click', function() {
                     if (this.disabled) {
                         return;
@@ -1073,7 +1106,8 @@
 
             // Export selected button
             const exportSelectedBtn = document.getElementById('exportSelectedBtn');
-            if (exportSelectedBtn) {
+            if (exportSelectedBtn && exportSelectedBtn.dataset.listenerInitialized !== 'true') {
+                exportSelectedBtn.dataset.listenerInitialized = 'true';
                 exportSelectedBtn.addEventListener('click', function() {
                     const totalSelected = getTotalSelectedCount();
                     const storedSelections = getStoredSelections();
@@ -1103,7 +1137,8 @@
 
             // Export format confirmation button
             const confirmExportBtn = document.getElementById('confirmExportBtn');
-            if (confirmExportBtn) {
+            if (confirmExportBtn && confirmExportBtn.dataset.listenerInitialized !== 'true') {
+                confirmExportBtn.dataset.listenerInitialized = 'true';
                 confirmExportBtn.addEventListener('click', function() {
                     const selectedFormat = document.querySelector('input[name="exportFormat"]:checked').value;
                     const selectedIds = window.selectedEmailsForExport;
@@ -1119,7 +1154,8 @@
 
             // Delete selected button
             const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
-            if (deleteSelectedBtn) {
+            if (deleteSelectedBtn && deleteSelectedBtn.dataset.listenerInitialized !== 'true') {
+                deleteSelectedBtn.dataset.listenerInitialized = 'true';
                 deleteSelectedBtn.addEventListener('click', function() {
                     const totalSelected = getTotalSelectedCount();
                     const storedSelections = getStoredSelections();
@@ -1266,12 +1302,20 @@
                 form.submit();
             }
 
-            // Initialize selection handlers when in selection mode
-            @if (Model.ShowSelectionControls) {
-                <text>
-                initializeSelectionHandlers();
-                </text>
+                // Initialize selection handlers when in selection mode
+                @if (Model.ShowSelectionControls) {
+                    <text>
+                    initializeSelectionHandlers();
+                    </text>
+                }
             }
-        });
+
+            document.addEventListener('DOMContentLoaded', initializeEmailsPage);
+            document.addEventListener('mailarchiver:fragment-refreshed', function (event) {
+                if (event.detail && event.detail.containerId === 'emailsLiveContent') {
+                    initializeEmailsPage();
+                }
+            });
+        })();
     </script>
 }

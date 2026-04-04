@@ -11,6 +11,13 @@
             <span class="d-none d-sm-inline">@Localizer["BackToArchive"]</span>
         </a>
     </div>
+
+    <div id="jobsLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-interval="5000">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
     @* Sync Jobs Section - Always at the top *@
     @if (ViewBag.SyncJobs != null)
     {
@@ -899,15 +906,5 @@
     {
         <div class="text-center py-5"><div class="mb-3"><i class="bi bi-clock-history display-1 text-muted"></i></div><h5 class="text-muted">@Localizer["NoBackgroundJobs"]</h5><p class="text-muted">@Localizer["NoActiveBackgroundJobs"]</p><div class="d-grid gap-2 d-md-flex justify-content-center"><a asp-controller="MailAccounts" asp-action="ImportMBox" class="btn btn-outline-success"><i class="bi bi-upload"></i> @Localizer["ImportMBoxFiles"]</a><a asp-controller="MailAccounts" asp-action="Index" class="btn btn-outline-primary"><i class="bi bi-person-gear"></i> @Localizer["ManageAccounts"]</a></div></div>
     }
+    </div>
 </div>
-@section Scripts {
-    <script>
-        setTimeout(function(){ location.reload(); }, 5000);
-        document.addEventListener('DOMContentLoaded', function(){
-            const refreshInfo=document.createElement('small');
-            refreshInfo.className='text-muted float-end';
-            refreshInfo.textContent='@Localizer["LastUpdate"] ' + new Date().toLocaleTimeString();
-            const firstCardHeader=document.querySelector('.card .card-header');
-            if(firstCardHeader){ firstCardHeader.appendChild(refreshInfo);} });
-    </script>
-}

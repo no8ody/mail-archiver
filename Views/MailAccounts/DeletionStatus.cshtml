@@ -3,9 +3,16 @@
 
 @{
     ViewData["Title"] = @Localizer["DeletionStatus"];
+    var shouldAutoRefresh = Model.Status == MailArchiver.Models.MailAccountDeletionJobStatus.Queued || Model.Status == MailArchiver.Models.MailAccountDeletionJobStatus.Running;
 }
 
 <div class="container-fluid">
+    <div id="accountDeletionStatusLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-interval="@(shouldAutoRefresh ? "5000" : null)">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
     <div class="row">
         <div class="col-12">
             <div class="card">
@@ -172,7 +179,7 @@
                                 </form>
                             }
                             
-                            <button type="button" class="btn btn-outline-primary" onclick="location.reload()">
+                            <button type="button" class="btn btn-outline-primary" onclick="window.mailArchiver.refreshContainerById('accountDeletionStatusLiveContent')">
                                 <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                             </button>
                         </div>
@@ -181,32 +188,8 @@
             </div>
         </div>
     </div>
+    </div>
 </div>
-
-@section Scripts {
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Auto-refresh if the job is still running
-            @if (Model.Status == MailArchiver.Models.MailAccountDeletionJobStatus.Queued || Model.Status == MailArchiver.Models.MailAccountDeletionJobStatus.Running)
-            {
-                <text>
-                setTimeout(function() {
-                    location.reload();
-                }, 5000); // Refresh every 5 seconds
-                </text>
-            }
-            else if (Model.Status == MailArchiver.Models.MailAccountDeletionJobStatus.Completed)
-            {
-                <text>
-                // Show success notification
-                if (typeof window.showNotification === 'function') {
-                    window.showNotification('@Localizer["DeletionCompletedSuccessfully"]', 'success');
-                }
-                </text>
-            }
-        });
-    </script>
-}
 
 <!-- Bootstrap Modal for Cancel Confirmation -->
 <div class="modal fade" id="cancelDeletionModal" tabindex="-1" aria-labelledby="cancelDeletionModalLabel" aria-hidden="true">
