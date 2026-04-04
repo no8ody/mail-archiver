@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Http.Extensions
+@using Microsoft.AspNetCore.Http.Extensions
 @using MailArchiver.Services
 @using MailArchiver.Models.ViewModels
 @inject MailArchiver.Services.IAuthenticationService AuthService
@@ -15,9 +15,12 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="h3">@Localizer["EmailArchive"]</h1>
-        <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
-            <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
-        </button>
+        @if (Model.SelectedAccountId.HasValue)
+        {
+            <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
+                <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
+            </button>
+        }
     </div>
 
     @* Active Jobs Alert *@
@@ -96,9 +99,9 @@
                                 </button>
                                 <a asp-action="Index" class="btn btn-outline-secondary btn-sm">@Localizer["Reset"]</a>
                                 <div class="form-check d-flex align-items-center ms-2">
-                                    <input class="form-check-input me-2" type="checkbox" id="toggleSelectionMode" name="ShowSelectionControls" value="true"
-                                           @(Model.ShowSelectionControls ? "checked" : "")>
-                                    <label class="form-check-label small" for="toggleSelectionMode">@Localizer["SelectionMode"]</label>
+                                    <input class="form-check-input me-2" type="checkbox" id="disableSelectionModeToggle" name="DisableSelectionMode" value="true"
+                                           @(Model.DisableSelectionMode ? "checked" : "")>
+                                    <label class="form-check-label small" for="disableSelectionModeToggle">@Localizer["Disable"] @Localizer["SelectionMode"]</label>
                                     <input type="hidden" id="userTimezone" name="UserTimezone" value="" />
                                     <input type="hidden" id="pageSizeHidden" name="PageSize" value="@Model.PageSize" />
                                 </div>
@@ -175,35 +178,31 @@
     }
 
     <div class="row">
-        <div class="col-lg-2 d-none d-lg-block">
-            <div class="folder-tree-panel">
-                <div class="folder-tree-header">
-                    <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
-                </div>
-                <div class="folder-tree-content" id="folderTreeContent">
-                    @if (!Model.SelectedAccountId.HasValue)
-                    {
-                        <div class="folder-tree-empty">
-                            <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                            <span class="text-muted">@Localizer["SelectAccountToViewFolders"]</span>
-                        </div>
-                    }
-                    else if (folderTree.Any())
-                    {
-                        @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
-                    }
-                    else
-                    {
-                        <div class="folder-tree-empty">
-                            <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                            <span class="text-muted">@Localizer["NoFolders"]</span>
-                        </div>
-                    }
+        @if (Model.SelectedAccountId.HasValue)
+        {
+            <div class="col-lg-2 d-none d-lg-block">
+                <div class="folder-tree-panel">
+                    <div class="folder-tree-header">
+                        <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+                    </div>
+                    <div class="folder-tree-content" id="folderTreeContent">
+                        @if (folderTree.Any())
+                        {
+                            @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
+                        }
+                        else
+                        {
+                            <div class="folder-tree-empty">
+                                <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                                <span class="text-muted">@Localizer["NoFolders"]</span>
+                            </div>
+                        }
+                    </div>
                 </div>
             </div>
-        </div>
+        }
 
-        <div class="col-lg-10">
+        <div class="@(Model.SelectedAccountId.HasValue ? "col-lg-10" : "col-12")">
             @if (Model.SearchResults != null && Model.SearchResults.Any())
             {
                 <div class="card">
@@ -271,7 +270,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "Subject",
                                             SortOrder = (Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -290,7 +289,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "From",
                                             SortOrder = (Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -309,7 +308,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "To",
                                             SortOrder = (Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -328,7 +327,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "SentDate",
                                             SortOrder = (Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -458,7 +457,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = Model.PageNumber - 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = Model.SortBy,
                                             SortOrder = Model.SortOrder
                                         })">@Localizer["Previous"]</a>
@@ -480,7 +479,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = i,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = Model.SortBy,
                                             SortOrder = Model.SortOrder
                                         })">@i</a>
@@ -498,7 +497,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = Model.PageNumber + 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = Model.SortBy,
                                             SortOrder = Model.SortOrder
                                         })">@Localizer["Next"]</a>
@@ -600,36 +599,32 @@
     </div>
 </div>
 
-<div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
-    <div class="offcanvas-header">
-        <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
-            <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-    </div>
-    <div class="offcanvas-body p-0">
-        <div class="folder-tree-content" id="folderTreeContentMobile">
-            @if (!Model.SelectedAccountId.HasValue)
-            {
-                <div class="folder-tree-empty">
-                    <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                    <span class="text-muted">@Localizer["SelectAccountToViewFolders"]</span>
-                </div>
-            }
-            else if (folderTree.Any())
-            {
-                @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
-            }
-            else
-            {
-                <div class="folder-tree-empty">
-                    <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                    <span class="text-muted">@Localizer["NoFolders"]</span>
-                </div>
-            }
+@if (Model.SelectedAccountId.HasValue)
+{
+    <div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
+                <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body p-0">
+            <div class="folder-tree-content" id="folderTreeContentMobile">
+                @if (folderTree.Any())
+                {
+                    @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
+                }
+                else
+                {
+                    <div class="folder-tree-empty">
+                        <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                        <span class="text-muted">@Localizer["NoFolders"]</span>
+                    </div>
+                }
+            </div>
         </div>
     </div>
-</div>
+}
 
 @section Scripts {
     <script>
@@ -755,7 +750,7 @@
             const STORAGE_KEY = 'emailSelection';
             
             // Get elements
-            const toggleSelectionMode = document.getElementById('toggleSelectionMode');
+            const disableSelectionModeToggle = document.getElementById('disableSelectionModeToggle');
             const searchForm = document.getElementById('searchForm');
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
             const selectAllBtn = document.getElementById('selectAllBtn');
@@ -835,9 +830,9 @@
             }
 
             // Toggle selection mode using form submit
-            if (toggleSelectionMode) {
-                toggleSelectionMode.addEventListener('change', function() {
-                    console.log("Selection mode toggled: " + this.checked);
+            if (disableSelectionModeToggle) {
+                disableSelectionModeToggle.addEventListener('change', function() {
+                    console.log("Selection mode disabled: " + this.checked);
                     clearStoredSelections();
                     searchForm.submit();
                 });

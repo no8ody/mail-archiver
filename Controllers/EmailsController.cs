@@ -94,6 +94,8 @@ namespace MailArchiver.Controllers
                 model.PageSize = 20; // Default to 20 if invalid value
             }
 
+            model.ShowSelectionControls = !model.DisableSelectionMode;
+
             // Ensure DirectionOptions are localized if model was created by the binder (parameterless ctor)
             if (model.DirectionOptions == null || model.DirectionOptions.Count < 3)
             {
@@ -385,6 +387,7 @@ namespace MailArchiver.Controllers
                     IsOutgoing = searchModel.IsOutgoing,
                     PageNumber = searchModel.PageNumber,
                     PageSize = searchModel.PageSize,
+                    DisableSelectionMode = searchModel.DisableSelectionMode,
                     ShowSelectionControls = searchModel.ShowSelectionControls
                 };
 

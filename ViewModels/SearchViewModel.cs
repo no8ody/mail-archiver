@@ -59,6 +59,7 @@ namespace MailArchiver.Models.ViewModels
 
         // Für die Batch-Operationen
         public List<int> SelectedEmailIds { get; set; } = new List<int>();
-        public bool ShowSelectionControls { get; set; } = false;
+        public bool DisableSelectionMode { get; set; } = false;
+        public bool ShowSelectionControls { get; set; } = true;
     }
 }
