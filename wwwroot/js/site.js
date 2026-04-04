@@ -141,9 +141,30 @@
         return container.dataset.autoRefreshUrl || window.location.href;
     }
 
+    function isAutoRefreshEnabled(container) {
+        return container.dataset.autoRefreshEnabled !== 'false';
+    }
+
+    function parseRefreshInterval(value) {
+        const parsed = Number.parseInt(value || '0', 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function getDefaultRefreshInterval() {
+        return parseRefreshInterval(document.body?.dataset.defaultAutoRefreshInterval);
+    }
+
     function getRefreshInterval(container) {
-        const value = Number.parseInt(container.dataset.autoRefreshInterval || '0', 10);
-        return Number.isFinite(value) ? value : 0;
+        if (!isAutoRefreshEnabled(container)) {
+            return 0;
+        }
+
+        const explicitValue = parseRefreshInterval(container.dataset.autoRefreshInterval);
+        if (explicitValue > 0) {
+            return explicitValue;
+        }
+
+        return getDefaultRefreshInterval();
     }
 
     function scheduleAutoRefresh(container) {

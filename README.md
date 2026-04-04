@@ -77,15 +77,12 @@ services:
     image: s1t5/mailarchiver:latest
     restart: always
     environment:
-      # Database Connection
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey;
-
-      # Authentication Settings
-      - Authentication__Username=admin
-      - Authentication__Password=secure123!
-
-      # TimeZone Settings
-      - TimeZone__DisplayTimeZoneId=Etc/UCT
+      # Preferred aliases (legacy __ variables still work)
+      - DATABASE_URL=Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey;
+      - AUTHENTICATION_USERNAME=admin
+      - AUTHENTICATION_PASSWORD=secure123!
+      - TZ=Etc/UCT
+      - REFRESH_INTERVAL_MINUTES=5
     ports:
       - "5000:5000"
     networks:
@@ -119,30 +116,32 @@ networks:
   postgres:
 ```
 
-3. Edit the database configuration in the `docker-compose.yml` and set a secure password in the `POSTGRES_PASSWORD` variable and the `ConnectionString`.
+3. Edit the database configuration in the `docker-compose.yml` and set a secure password in the `POSTGRES_PASSWORD` variable and the `DATABASE_URL`.
 
-4. Definie a `Authentication__Username` and `Authentication__Password` which is used for the admin user.
+4. Define `AUTHENTICATION_USERNAME` and `AUTHENTICATION_PASSWORD` for the initial admin user. Legacy names like `Authentication__Username` and `Authentication__Password` are still supported.
 
-5. Adjust the `TimeZone__DisplayTimeZoneId` environment variable to match your preferred timezone (default is "Etc/UCT"). You can use any IANA timezone identifier (e.g., "Europe/Berlin", "Asia/Tokyo").
+5. Adjust `TZ` to match your preferred timezone (default is "Etc/UCT"). You can use any IANA timezone identifier (e.g., "Europe/Berlin", "Asia/Tokyo").
 
-6. Configure a reverse proxy of your choice with https to secure access to the application. 
+6. Optionally set `REFRESH_INTERVAL_MINUTES` to control the global background refresh interval. The default is `5` minutes. Fractional values such as `0.5` (30 seconds) are supported, and `0` disables automatic refresh.
+
+7. Configure a reverse proxy of your choice with https to secure access to the application. 
 
 > ⚠️ **Attention**
 > The application itself does not provide encrypted access via https! It must be set up via a reverse proxy! Moreover the application is not build for public internet access!
 
-7. Initial start of the containers:
+8. Initial start of the containers:
 ```bash
 docker compose up -d
 ```
 
-8. Restart containers:
+9. Restart containers:
 ```bash
 docker compose restart
 ```
 
-9. Access the application in your prefered browser.
+10. Access the application in your prefered browser.
 
-10. Login with your defined credentials and add your first email account:
+11. Login with your defined credentials and add your first email account:
 - Navigate to "Email Accounts" section
 - Click "New Account"
 - Enter your server details and credentials
@@ -155,7 +154,86 @@ docker compose restart
 - Regular backups of the PostgreSQL database recommended (see [Backup & Restore Guide](doc/BackupRestore.md) for detailed instructions)
 
 ## ⚙️ Advanced Setup
-For a complete list of all configuration options, please refer to the [Setup Guide](doc/Setup.md).
+The table below lists the preferred environment variables, their legacy ASP.NET Core `Section__Key` equivalents, and the shipped defaults. Empty defaults mean the setting is unset unless you provide a value.
+
+Shortcuts such as `DATABASE_URL`, `TZ`, and `MAILARCHIVE_URL` are preferred where available. Direct single-underscore aliases such as `CONNECTION_STRINGS_DEFAULT_CONNECTION` and `TIME_ZONE_DISPLAY_TIME_ZONE_ID` also continue to work, in addition to the legacy `__` syntax.
+
+| Variable | Legacy `__` form | Default |
+|---|---|---|
+| `ASPNETCORE_URLS` | — | `http://0.0.0.0:5000` |
+| `DATABASE_URL` | `ConnectionStrings__DefaultConnection` | `Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey` |
+| `MAILARCHIVE_URL` | `Authentication__PublicOrigin` / `Application__PublicOrigin` / `HostFiltering__AdditionalAllowedHosts` | empty |
+| `ALLOWED_HOSTS` | `AllowedHosts` | `localhost;127.0.0.1;[::1]` |
+| `APPLICATION_PUBLIC_ORIGIN` | `Application__PublicOrigin` | empty |
+| `AUTHENTICATION_ENABLED` | `Authentication__Enabled` | `true` |
+| `AUTHENTICATION_USERNAME` | `Authentication__Username` | `admin` |
+| `AUTHENTICATION_PASSWORD` | `Authentication__Password` | `secure123!` |
+| `AUTHENTICATION_SESSION_TIMEOUT_MINUTES` | `Authentication__SessionTimeoutMinutes` | `60` |
+| `AUTHENTICATION_COOKIE_NAME` | `Authentication__CookieName` | `MailArchiverAuth` |
+| `AUTHENTICATION_COOKIE_SAME_SITE` | `Authentication__CookieSameSite` | `Strict` |
+| `AUTHENTICATION_COOKIE_SECURE_POLICY` | `Authentication__CookieSecurePolicy` | `SameAsRequest` |
+| `AUTHENTICATION_PUBLIC_ORIGIN` | `Authentication__PublicOrigin` | empty |
+| `OAUTH_ENABLED` | `OAuth__Enabled` | `false` |
+| `OAUTH_AUTHORITY` | `OAuth__Authority` | empty |
+| `OAUTH_CLIENT_ID` | `OAuth__ClientId` | empty |
+| `OAUTH_CLIENT_SECRET` | `OAuth__ClientSecret` | empty |
+| `OAUTH_CLIENT_SCOPES_0` | `OAuth__ClientScopes__0` | `openid` |
+| `OAUTH_CLIENT_SCOPES_1` | `OAuth__ClientScopes__1` | `profile` |
+| `OAUTH_CLIENT_SCOPES_2` | `OAuth__ClientScopes__2` | `email` |
+| `OAUTH_DISABLE_PASSWORD_LOGIN` | `OAuth__DisablePasswordLogin` | `false` |
+| `OAUTH_AUTO_REDIRECT` | `OAuth__AutoRedirect` | `false` |
+| `OAUTH_AUTO_APPROVE_USERS` | `OAuth__AutoApproveUsers` | `false` |
+| `OAUTH_ADMIN_EMAILS_N` | `OAuth__AdminEmails__N` | empty |
+| `MAIL_SYNC_INTERVAL_MINUTES` | `MailSync__IntervalMinutes` | `15` |
+| `MAIL_SYNC_TIMEOUT_MINUTES` | `MailSync__TimeoutMinutes` | `120` |
+| `MAIL_SYNC_CONNECTION_TIMEOUT_SECONDS` | `MailSync__ConnectionTimeoutSeconds` | `300` |
+| `MAIL_SYNC_COMMAND_TIMEOUT_SECONDS` | `MailSync__CommandTimeoutSeconds` | `600` |
+| `MAIL_SYNC_ALWAYS_FORCE_FULL_SYNC` | `MailSync__AlwaysForceFullSync` | `false` |
+| `MAIL_SYNC_IGNORE_SELF_SIGNED_CERT` | `MailSync__IgnoreSelfSignedCert` | `false` |
+| `BATCH_RESTORE_ASYNC_THRESHOLD` | `BatchRestore__AsyncThreshold` | `50` |
+| `BATCH_RESTORE_MAX_SYNC_EMAILS` | `BatchRestore__MaxSyncEmails` | `150` |
+| `BATCH_RESTORE_MAX_ASYNC_EMAILS` | `BatchRestore__MaxAsyncEmails` | `50000` |
+| `BATCH_RESTORE_SESSION_TIMEOUT_MINUTES` | `BatchRestore__SessionTimeoutMinutes` | `30` |
+| `BATCH_RESTORE_DEFAULT_BATCH_SIZE` | `BatchRestore__DefaultBatchSize` | `50` |
+| `BATCH_OPERATION_BATCH_SIZE` | `BatchOperation__BatchSize` | `50` |
+| `BATCH_OPERATION_PAUSE_BETWEEN_EMAILS_MS` | `BatchOperation__PauseBetweenEmailsMs` | `50` |
+| `BATCH_OPERATION_PAUSE_BETWEEN_BATCHES_MS` | `BatchOperation__PauseBetweenBatchesMs` | `200` |
+| `SELECTION_MAX_SELECTABLE_EMAILS` | `Selection__MaxSelectableEmails` | `250` |
+| `VIEW_DEFAULT_TO_PLAIN_TEXT` | `View__DefaultToPlainText` | `true` |
+| `VIEW_BLOCK_EXTERNAL_RESOURCES` | `View__BlockExternalResources` | `true` |
+| `BANDWIDTH_TRACKING_ENABLED` | `BandwidthTracking__Enabled` | `false` |
+| `BANDWIDTH_TRACKING_DAILY_LIMIT_MB` | `BandwidthTracking__DailyLimitMb` | `25000` |
+| `BANDWIDTH_TRACKING_WARNING_THRESHOLD_PERCENT` | `BandwidthTracking__WarningThresholdPercent` | `80` |
+| `BANDWIDTH_TRACKING_PAUSE_HOURS_ON_LIMIT` | `BandwidthTracking__PauseHoursOnLimit` | `24` |
+| `BANDWIDTH_TRACKING_TRACK_UPLOAD_BYTES` | `BandwidthTracking__TrackUploadBytes` | `false` |
+| `TZ` | `TimeZone__DisplayTimeZoneId` | `Etc/UCT` |
+| `REFRESH_INTERVAL_MINUTES` | `Refresh__IntervalMinutes` | `5` |
+| `DATABASE_MAINTENANCE_ENABLED` | `DatabaseMaintenance__Enabled` | `false` |
+| `DATABASE_MAINTENANCE_DAILY_EXECUTION_TIME` | `DatabaseMaintenance__DailyExecutionTime` | `02:00` |
+| `DATABASE_MAINTENANCE_TIMEOUT_MINUTES` | `DatabaseMaintenance__TimeoutMinutes` | `30` |
+| `UPLOAD_MAX_FILE_SIZE_GB` | `Upload__MaxFileSizeGB` | `2` |
+| `UPLOAD_KEEP_ALIVE_TIMEOUT_MINUTES` | `Upload__KeepAliveTimeoutMinutes` | `10` |
+| `UPLOAD_REQUEST_HEADERS_TIMEOUT_SECONDS` | `Upload__RequestHeadersTimeoutSeconds` | `30` |
+| `UPLOAD_MEMORY_BUFFER_THRESHOLD_MB` | `Upload__MemoryBufferThresholdMB` | `1` |
+| `UPLOAD_MAX_ARCHIVE_ENTRIES` | `Upload__MaxArchiveEntries` | `10000` |
+| `UPLOAD_MAX_ARCHIVE_ENTRY_SIZE_MB` | `Upload__MaxArchiveEntrySizeMB` | `50` |
+| `UPLOAD_MAX_ARCHIVE_EXPANDED_SIZE_GB` | `Upload__MaxArchiveExpandedSizeGB` | `2` |
+| `UPLOAD_MAX_ARCHIVE_COMPRESSION_RATIO` | `Upload__MaxArchiveCompressionRatio` | `100` |
+| `UPLOAD_NOTES` | `Upload__Notes` | `Security-hardened upload defaults with bounded ZIP processing` |
+| `REVERSE_PROXY_FORWARD_LIMIT` | `ReverseProxy__ForwardLimit` | `1` |
+| `REVERSE_PROXY_REQUIRE_HEADER_SYMMETRY` | `ReverseProxy__RequireHeaderSymmetry` | `true` |
+| `REVERSE_PROXY_KNOWN_PROXIES_N` | `ReverseProxy__KnownProxies__N` | empty |
+| `REVERSE_PROXY_KNOWN_NETWORKS_N` | `ReverseProxy__KnownNetworks__N` | empty |
+| `HOST_FILTERING_ALLOWED_HOSTS` | `HostFiltering__AllowedHosts` | empty |
+| `HOST_FILTERING_ADDITIONAL_ALLOWED_HOSTS` | `HostFiltering__AdditionalAllowedHosts` | empty |
+| `DATA_PROTECTION_KEY_PATH` | `DataProtection__KeyPath` | `/app/DataProtection-Keys` |
+| `ENCRYPTION_KEY` | `Encryption__Key` | empty |
+| `NPGSQL_COMMAND_TIMEOUT` | `Npgsql__CommandTimeout` | `900` |
+| `LOGGING_LOG_LEVEL_DEFAULT` | `Logging__LogLevel__Default` | `Information` |
+| `LOGGING_LOG_LEVEL_MICROSOFT_ASP_NET_CORE` | `Logging__LogLevel__Microsoft.AspNetCore` | `Warning` |
+| `LOGGING_LOG_LEVEL_MICROSOFT_ENTITY_FRAMEWORK_CORE_DATABASE_COMMAND` | `Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command` | `Warning` |
+
+For detailed behavior and setup examples, please refer to the [Setup Guide](doc/Setup.md).
 
 
 ## 📋 Technical Details

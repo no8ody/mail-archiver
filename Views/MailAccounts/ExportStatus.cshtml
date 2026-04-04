@@ -9,7 +9,7 @@
 <div class="container-fluid">
     <div id="exportStatusLiveContent"
          data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
-         data-auto-refresh-interval="@(shouldAutoRefresh ? "5000" : null)">
+         data-auto-refresh-enabled="@(shouldAutoRefresh ? "true" : "false")">
         <div class="d-flex justify-content-end mb-2">
             <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
         </div>
