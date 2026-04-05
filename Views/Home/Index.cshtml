@@ -15,6 +15,13 @@
         </div>
     </div>
 
+    <div id="dashboardLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-enabled="true">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
+
     @if (AuthService.IsCurrentUserAdmin(Context) && ViewBag.ActiveJobsCount != null && ViewBag.ActiveJobsCount > 0)
     {
         <div class="row mb-4">
@@ -312,143 +319,187 @@
             </div>
         </div>
     </div>
+    <script type="application/json" id="dashboardChartData">
+        @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            monthlyLabels = Model.EmailsByMonth.Select(m => m.Period),
+            monthlyData = Model.EmailsByMonth.Select(m => m.Count),
+            topSenderLabels = Model.TopSenders.Select(s => s.EmailAddress.Length > 25 ? s.EmailAddress.Substring(0, 25) + "..." : s.EmailAddress),
+            topSenderData = Model.TopSenders.Select(s => s.Count)
+        }))
+    </script>
+    </div>
 </div>
 
 @section Scripts {
-     <script src="~/lib/chart.js/chart.js"></script>
+    <script src="~/lib/chart.js/chart.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Chart colors
-            const chartColors = {
-                blue: 'rgba(13, 110, 253, 0.8)',
-                blueBorder: 'rgba(13, 110, 253, 1)',
-                colors: [
-                    'rgba(220, 53, 69, 0.8)',   // Red
-                    'rgba(13, 110, 253, 0.8)',  // Blue
-                    'rgba(255, 193, 7, 0.8)',   // Yellow
-                    'rgba(25, 135, 84, 0.8)',   // Green
-                    'rgba(102, 16, 242, 0.8)',  // Purple
-                    'rgba(253, 126, 20, 0.8)',  // Orange
-                    'rgba(111, 66, 193, 0.8)',  // Indigo
-                    'rgba(214, 51, 132, 0.8)',  // Pink
-                    'rgba(32, 201, 151, 0.8)',  // Teal
-                    'rgba(111, 66, 193, 0.8)'   // Cyan
-                ],
-                colorsBorder: [
-                    'rgba(220, 53, 69, 1)',
-                    'rgba(13, 110, 253, 1)',
-                    'rgba(255, 193, 7, 1)',
-                    'rgba(25, 135, 84, 1)',
-                    'rgba(102, 16, 242, 1)',
-                    'rgba(253, 126, 20, 1)',
-                    'rgba(111, 66, 193, 1)',
-                    'rgba(214, 51, 132, 1)',
-                    'rgba(32, 201, 151, 1)',
-                    'rgba(111, 66, 193, 1)'
-                ]
-            };
+        (function () {
+            let monthlyChartInstance = null;
+            let topSendersChartInstance = null;
 
-            // Monthly Emails Chart
-            const monthlyChartCanvas = document.getElementById('monthlyChart');
-            if (monthlyChartCanvas) {
-                const monthlyChart = new Chart(monthlyChartCanvas.getContext('2d'), {
-                    type: 'bar',
-                    data: {
-                        labels: [@Html.Raw(string.Join(",", Model.EmailsByMonth.Select(m => $"'{m.Period}'")))],
-                        datasets: [{
-                            label: 'Emails',
-                            data: [@string.Join(",", Model.EmailsByMonth.Select(m => m.Count))],
-                            backgroundColor: chartColors.blue,
-                            borderColor: chartColors.blueBorder,
-                            borderWidth: 1,
-                            borderRadius: 4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
+            function destroyCharts() {
+                if (monthlyChartInstance) {
+                    monthlyChartInstance.destroy();
+                    monthlyChartInstance = null;
+                }
+
+                if (topSendersChartInstance) {
+                    topSendersChartInstance.destroy();
+                    topSendersChartInstance = null;
+                }
+            }
+
+            function renderDashboardCharts() {
+                const container = document.getElementById('dashboardLiveContent');
+                if (!container) {
+                    destroyCharts();
+                    return;
+                }
+
+                const chartDataElement = container.querySelector('#dashboardChartData');
+                if (!chartDataElement) {
+                    destroyCharts();
+                    return;
+                }
+
+                let chartData;
+                try {
+                    chartData = JSON.parse(chartDataElement.textContent);
+                } catch (error) {
+                    console.error('Could not parse dashboard chart data.', error);
+                    return;
+                }
+
+                const chartColors = {
+                    blue: 'rgba(13, 110, 253, 0.8)',
+                    blueBorder: 'rgba(13, 110, 253, 1)',
+                    colors: [
+                        'rgba(220, 53, 69, 0.8)',
+                        'rgba(13, 110, 253, 0.8)',
+                        'rgba(255, 193, 7, 0.8)',
+                        'rgba(25, 135, 84, 0.8)',
+                        'rgba(102, 16, 242, 0.8)',
+                        'rgba(253, 126, 20, 0.8)',
+                        'rgba(111, 66, 193, 0.8)',
+                        'rgba(214, 51, 132, 0.8)',
+                        'rgba(32, 201, 151, 0.8)',
+                        'rgba(111, 66, 193, 0.8)'
+                    ],
+                    colorsBorder: [
+                        'rgba(220, 53, 69, 1)',
+                        'rgba(13, 110, 253, 1)',
+                        'rgba(255, 193, 7, 1)',
+                        'rgba(25, 135, 84, 1)',
+                        'rgba(102, 16, 242, 1)',
+                        'rgba(253, 126, 20, 1)',
+                        'rgba(111, 66, 193, 1)',
+                        'rgba(214, 51, 132, 1)',
+                        'rgba(32, 201, 151, 1)',
+                        'rgba(111, 66, 193, 1)'
+                    ]
+                };
+
+                destroyCharts();
+
+                const monthlyChartCanvas = container.querySelector('#monthlyChart');
+                if (monthlyChartCanvas) {
+                    monthlyChartInstance = new Chart(monthlyChartCanvas.getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: chartData.monthlyLabels || [],
+                            datasets: [{
+                                label: 'Emails',
+                                data: chartData.monthlyData || [],
+                                backgroundColor: chartColors.blue,
+                                borderColor: chartColors.blueBorder,
+                                borderWidth: 1,
+                                borderRadius: 4
+                            }]
                         },
-                        scales: {
-                            x: {
-                                ticks: {
-                                    maxRotation: 45,
-                                    minRotation: 0,
-                                    font: {
-                                        size: window.innerWidth < 768 ? 10 : 12
-                                    }
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false
                                 }
                             },
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    precision: 0,
-                                    font: {
-                                        size: window.innerWidth < 768 ? 10 : 12
+                            scales: {
+                                x: {
+                                    ticks: {
+                                        maxRotation: 45,
+                                        minRotation: 0,
+                                        font: {
+                                            size: window.innerWidth < 768 ? 10 : 12
+                                        }
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        precision: 0,
+                                        font: {
+                                            size: window.innerWidth < 768 ? 10 : 12
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                });
-            }
+                    });
+                }
 
-            // Top Senders Chart
-            const topSendersChartCanvas = document.getElementById('topSendersChart');
-            if (topSendersChartCanvas) {
-                const topSendersChart = new Chart(topSendersChartCanvas.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: [@Html.Raw(string.Join(",", Model.TopSenders.Select(s => $"'{(s.EmailAddress.Length > 25 ? s.EmailAddress.Substring(0, 25) + "..." : s.EmailAddress)}'")))],
-                        datasets: [{
-                            data: [@string.Join(",", Model.TopSenders.Select(s => s.Count))],
-                            backgroundColor: chartColors.colors,
-                            borderColor: chartColors.colorsBorder,
-                            borderWidth: 1,
-                            hoverOffset: 4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    boxWidth: 12,
-                                    font: {
-                                        size: window.innerWidth < 768 ? 9 : 11
-                                    },
-                                    padding: window.innerWidth < 768 ? 10 : 15
-                                }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        let label = context.label || '';
-                                        let value = context.parsed || 0;
-                                        let total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                        let percentage = total > 0 ? Math.round((value * 100) / total) : 0;
-                                        return `${label}: ${value} (${percentage}%)`;
+                const topSendersChartCanvas = container.querySelector('#topSendersChart');
+                if (topSendersChartCanvas) {
+                    topSendersChartInstance = new Chart(topSendersChartCanvas.getContext('2d'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: chartData.topSenderLabels || [],
+                            datasets: [{
+                                data: chartData.topSenderData || [],
+                                backgroundColor: chartColors.colors,
+                                borderColor: chartColors.colorsBorder,
+                                borderWidth: 1,
+                                hoverOffset: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        boxWidth: 12,
+                                        font: {
+                                            size: window.innerWidth < 768 ? 9 : 11
+                                        },
+                                        padding: window.innerWidth < 768 ? 10 : 15
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function (context) {
+                                            const label = context.label || '';
+                                            const value = context.parsed || 0;
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = total > 0 ? Math.round((value * 100) / total) : 0;
+                                            return `${label}: ${value} (${percentage}%)`;
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                });
+                    });
+                }
             }
 
-            // Auto-refresh dashboard if there are active jobs
-            @if (ViewBag.ActiveJobsCount != null && ViewBag.ActiveJobsCount > 0)
-            {
-                @:// Refresh page every 30 seconds if there are active jobs
-                @:setTimeout(function() {
-                @:    location.reload();
-                @:}, 30000);
-            }
-        });
+            document.addEventListener('DOMContentLoaded', renderDashboardCharts);
+            document.addEventListener('mailarchiver:fragment-refreshed', function (event) {
+                if (event.detail && event.detail.containerId === 'dashboardLiveContent') {
+                    renderDashboardCharts();
+                }
+            });
+        })();
     </script>
 }

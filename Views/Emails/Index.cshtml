@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Http.Extensions
+@using Microsoft.AspNetCore.Http.Extensions
 @using MailArchiver.Services
 @using MailArchiver.Models.ViewModels
 @inject MailArchiver.Services.IAuthenticationService AuthService
@@ -15,9 +15,12 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="h3">@Localizer["EmailArchive"]</h1>
-        <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
-            <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
-        </button>
+        @if (Model.SelectedAccountId.HasValue)
+        {
+            <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
+                <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
+            </button>
+        }
     </div>
 
     @* Active Jobs Alert *@
@@ -96,9 +99,9 @@
                                 </button>
                                 <a asp-action="Index" class="btn btn-outline-secondary btn-sm">@Localizer["Reset"]</a>
                                 <div class="form-check d-flex align-items-center ms-2">
-                                    <input class="form-check-input me-2" type="checkbox" id="toggleSelectionMode" name="ShowSelectionControls" value="true"
-                                           @(Model.ShowSelectionControls ? "checked" : "")>
-                                    <label class="form-check-label small" for="toggleSelectionMode">@Localizer["SelectionMode"]</label>
+                                    <input class="form-check-input me-2" type="checkbox" id="disableSelectionModeToggle" name="DisableSelectionMode" value="true"
+                                           @(Model.DisableSelectionMode ? "checked" : "")>
+                                    <label class="form-check-label small" for="disableSelectionModeToggle">@Localizer["Disable"] @Localizer["SelectionMode"]</label>
                                     <input type="hidden" id="userTimezone" name="UserTimezone" value="" />
                                     <input type="hidden" id="pageSizeHidden" name="PageSize" value="@Model.PageSize" />
                                 </div>
@@ -109,6 +112,13 @@
             </form>
         </div>
     </div>
+
+    <div id="emailsLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-enabled="true">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
 
     @* Batch Operation Information *@
     @if (Model.ShowSelectionControls)
@@ -175,35 +185,31 @@
     }
 
     <div class="row">
-        <div class="col-lg-2 d-none d-lg-block">
-            <div class="folder-tree-panel">
-                <div class="folder-tree-header">
-                    <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
-                </div>
-                <div class="folder-tree-content" id="folderTreeContent">
-                    @if (!Model.SelectedAccountId.HasValue)
-                    {
-                        <div class="folder-tree-empty">
-                            <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                            <span class="text-muted">@Localizer["SelectAccountToViewFolders"]</span>
-                        </div>
-                    }
-                    else if (folderTree.Any())
-                    {
-                        @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
-                    }
-                    else
-                    {
-                        <div class="folder-tree-empty">
-                            <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                            <span class="text-muted">@Localizer["NoFolders"]</span>
-                        </div>
-                    }
+        @if (Model.SelectedAccountId.HasValue)
+        {
+            <div class="col-lg-2 d-none d-lg-block">
+                <div class="folder-tree-panel">
+                    <div class="folder-tree-header">
+                        <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+                    </div>
+                    <div class="folder-tree-content" id="folderTreeContent">
+                        @if (folderTree.Any())
+                        {
+                            @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
+                        }
+                        else
+                        {
+                            <div class="folder-tree-empty">
+                                <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                                <span class="text-muted">@Localizer["NoFolders"]</span>
+                            </div>
+                        }
+                    </div>
                 </div>
             </div>
-        </div>
+        }
 
-        <div class="col-lg-10">
+        <div class="@(Model.SelectedAccountId.HasValue ? "col-lg-10" : "col-12")">
             @if (Model.SearchResults != null && Model.SearchResults.Any())
             {
                 <div class="card">
@@ -271,7 +277,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "Subject",
                                             SortOrder = (Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -290,7 +296,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "From",
                                             SortOrder = (Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -309,7 +315,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "To",
                                             SortOrder = (Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -328,7 +334,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = "SentDate",
                                             SortOrder = (Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc"
                                         })'">
@@ -458,7 +464,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = Model.PageNumber - 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = Model.SortBy,
                                             SortOrder = Model.SortOrder
                                         })">@Localizer["Previous"]</a>
@@ -480,7 +486,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = i,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = Model.SortBy,
                                             SortOrder = Model.SortOrder
                                         })">@i</a>
@@ -498,7 +504,7 @@
                                             IsOutgoing = Model.IsOutgoing,
                                             PageNumber = Model.PageNumber + 1,
                                             PageSize = Model.PageSize,
-                                            ShowSelectionControls = Model.ShowSelectionControls,
+                                            DisableSelectionMode = Model.DisableSelectionMode,
                                             SortBy = Model.SortBy,
                                             SortOrder = Model.SortOrder
                                         })">@Localizer["Next"]</a>
@@ -600,42 +606,40 @@
     </div>
 </div>
 
-<div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
-    <div class="offcanvas-header">
-        <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
-            <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-    </div>
-    <div class="offcanvas-body p-0">
-        <div class="folder-tree-content" id="folderTreeContentMobile">
-            @if (!Model.SelectedAccountId.HasValue)
-            {
-                <div class="folder-tree-empty">
-                    <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                    <span class="text-muted">@Localizer["SelectAccountToViewFolders"]</span>
-                </div>
-            }
-            else if (folderTree.Any())
-            {
-                @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
-            }
-            else
-            {
-                <div class="folder-tree-empty">
-                    <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                    <span class="text-muted">@Localizer["NoFolders"]</span>
-                </div>
-            }
+@if (Model.SelectedAccountId.HasValue)
+{
+    <div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
+                <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body p-0">
+            <div class="folder-tree-content" id="folderTreeContentMobile">
+                @if (folderTree.Any())
+                {
+                    @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
+                }
+                else
+                {
+                    <div class="folder-tree-empty">
+                        <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+                        <span class="text-muted">@Localizer["NoFolders"]</span>
+                    </div>
+                }
+            </div>
         </div>
     </div>
-</div>
+}
+    </div>
 
 @section Scripts {
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        (function () {
+            function initializeEmailsPage() {
             console.log("Email selection script initialized");
-            const timezoneInput = document.getElementById('userTimezone');
+                const timezoneInput = document.getElementById('userTimezone');
             if (timezoneInput) {
                 timezoneInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
             }
@@ -643,7 +647,8 @@
             // Auto-submit form when page size changes
             const pageSizeSelect = document.getElementById('pageSizeSelect');
             const pageSizeHidden = document.getElementById('pageSizeHidden');
-            if (pageSizeSelect && pageSizeHidden) {
+            if (pageSizeSelect && pageSizeHidden && pageSizeSelect.dataset.listenerInitialized !== 'true') {
+                pageSizeSelect.dataset.listenerInitialized = 'true';
                 pageSizeSelect.addEventListener('change', function() {
                     console.log("Page size changed to:", this.value);
                     // Sync hidden field
@@ -654,6 +659,11 @@
 
             function initializeFolderTreeHandlers() {
                 document.querySelectorAll('.folder-tree-item').forEach(function(item) {
+                    if (item.dataset.listenerInitialized === 'true') {
+                        return;
+                    }
+
+                    item.dataset.listenerInitialized = 'true';
                     item.addEventListener('click', function(e) {
                         if (e.target.closest('.folder-tree-toggle')) {
                             return;
@@ -670,6 +680,11 @@
                 });
 
                 document.querySelectorAll('.folder-tree-toggle').forEach(function(toggle) {
+                    if (toggle.dataset.listenerInitialized === 'true') {
+                        return;
+                    }
+
+                    toggle.dataset.listenerInitialized = 'true';
                     toggle.addEventListener('click', function(e) {
                         e.stopPropagation();
                         const parent = this.closest('.folder-tree-item');
@@ -702,7 +717,9 @@
                     directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
                 }
                 
-                accountSelect.addEventListener('change', function() {
+                if (accountSelect.dataset.listenerInitialized !== 'true') {
+                    accountSelect.dataset.listenerInitialized = 'true';
+                    accountSelect.addEventListener('change', function() {
                     const accountId = this.value;
                     console.log("Account selection changed to:", accountId);
                     
@@ -743,7 +760,8 @@
                                 directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
                             });
                     }
-                });
+                    });
+                }
             }
 
             // Configuration from ViewBag
@@ -755,7 +773,7 @@
             const STORAGE_KEY = 'emailSelection';
             
             // Get elements
-            const toggleSelectionMode = document.getElementById('toggleSelectionMode');
+            const disableSelectionModeToggle = document.getElementById('disableSelectionModeToggle');
             const searchForm = document.getElementById('searchForm');
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
             const selectAllBtn = document.getElementById('selectAllBtn');
@@ -835,9 +853,10 @@
             }
 
             // Toggle selection mode using form submit
-            if (toggleSelectionMode) {
-                toggleSelectionMode.addEventListener('change', function() {
-                    console.log("Selection mode toggled: " + this.checked);
+            if (disableSelectionModeToggle && disableSelectionModeToggle.dataset.listenerInitialized !== 'true') {
+                disableSelectionModeToggle.dataset.listenerInitialized = 'true';
+                disableSelectionModeToggle.addEventListener('change', function() {
+                    console.log("Selection mode disabled: " + this.checked);
                     clearStoredSelections();
                     searchForm.submit();
                 });
@@ -925,6 +944,11 @@
                     }
                     
                     // Individual checkbox change
+                    if (checkbox.dataset.listenerInitialized === 'true') {
+                        return;
+                    }
+
+                    checkbox.dataset.listenerInitialized = 'true';
                     checkbox.addEventListener('change', function() {
                         const isChecked = this.checked;
                         const emailId = this.value;
@@ -947,7 +971,8 @@
             }
 
             // Select/deselect all checkboxes on current page
-            if (selectAllCheckbox) {
+            if (selectAllCheckbox && selectAllCheckbox.dataset.listenerInitialized !== 'true') {
+                selectAllCheckbox.dataset.listenerInitialized = 'true';
                 selectAllCheckbox.addEventListener('change', function() {
                     const isChecked = this.checked;
                     const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
@@ -976,7 +1001,8 @@
             }
 
             // Select all button - only for current page
-            if (selectAllBtn) {
+            if (selectAllBtn && selectAllBtn.dataset.listenerInitialized !== 'true') {
+                selectAllBtn.dataset.listenerInitialized = 'true';
                 selectAllBtn.addEventListener('click', function() {
                     const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
                     const currentPageIds = Array.from(emailCheckboxes).map(cb => cb.value);
@@ -1003,7 +1029,8 @@
             }
 
             // Deselect all button - clears all selections across all pages
-            if (deselectAllBtn) {
+            if (deselectAllBtn && deselectAllBtn.dataset.listenerInitialized !== 'true') {
+                deselectAllBtn.dataset.listenerInitialized = 'true';
                 deselectAllBtn.addEventListener('click', function() {
                     clearStoredSelections();
                     const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
@@ -1015,7 +1042,8 @@
             }
 
             // Batch restore button
-            if (batchRestoreBtn) {
+            if (batchRestoreBtn && batchRestoreBtn.dataset.listenerInitialized !== 'true') {
+                batchRestoreBtn.dataset.listenerInitialized = 'true';
                 batchRestoreBtn.addEventListener('click', function() {
                     if (this.disabled) {
                         return;
@@ -1078,7 +1106,8 @@
 
             // Export selected button
             const exportSelectedBtn = document.getElementById('exportSelectedBtn');
-            if (exportSelectedBtn) {
+            if (exportSelectedBtn && exportSelectedBtn.dataset.listenerInitialized !== 'true') {
+                exportSelectedBtn.dataset.listenerInitialized = 'true';
                 exportSelectedBtn.addEventListener('click', function() {
                     const totalSelected = getTotalSelectedCount();
                     const storedSelections = getStoredSelections();
@@ -1108,7 +1137,8 @@
 
             // Export format confirmation button
             const confirmExportBtn = document.getElementById('confirmExportBtn');
-            if (confirmExportBtn) {
+            if (confirmExportBtn && confirmExportBtn.dataset.listenerInitialized !== 'true') {
+                confirmExportBtn.dataset.listenerInitialized = 'true';
                 confirmExportBtn.addEventListener('click', function() {
                     const selectedFormat = document.querySelector('input[name="exportFormat"]:checked').value;
                     const selectedIds = window.selectedEmailsForExport;
@@ -1124,7 +1154,8 @@
 
             // Delete selected button
             const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
-            if (deleteSelectedBtn) {
+            if (deleteSelectedBtn && deleteSelectedBtn.dataset.listenerInitialized !== 'true') {
+                deleteSelectedBtn.dataset.listenerInitialized = 'true';
                 deleteSelectedBtn.addEventListener('click', function() {
                     const totalSelected = getTotalSelectedCount();
                     const storedSelections = getStoredSelections();
@@ -1271,12 +1302,20 @@
                 form.submit();
             }
 
-            // Initialize selection handlers when in selection mode
-            @if (Model.ShowSelectionControls) {
-                <text>
-                initializeSelectionHandlers();
-                </text>
+                // Initialize selection handlers when in selection mode
+                @if (Model.ShowSelectionControls) {
+                    <text>
+                    initializeSelectionHandlers();
+                    </text>
+                }
             }
-        });
+
+            document.addEventListener('DOMContentLoaded', initializeEmailsPage);
+            document.addEventListener('mailarchiver:fragment-refreshed', function (event) {
+                if (event.detail && event.detail.containerId === 'emailsLiveContent') {
+                    initializeEmailsPage();
+                }
+            });
+        })();
     </script>
 }

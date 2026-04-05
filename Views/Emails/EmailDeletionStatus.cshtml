@@ -4,9 +4,16 @@
 
 @{
     ViewData["Title"] = Localizer["EmailDeletionStatus"];
+    var shouldAutoRefresh = Model.Status == MailArchiver.Models.EmailDeletionJobStatus.Running || Model.Status == MailArchiver.Models.EmailDeletionJobStatus.Queued;
 }
 
 <div class="container mt-4">
+    <div id="emailDeletionStatusLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-enabled="@(shouldAutoRefresh ? "true" : "false")">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
     <h2>@Localizer["EmailDeletionStatus"]</h2>
 
     <div class="card mt-3">
@@ -144,14 +151,7 @@
             <i class="bi bi-arrow-left"></i> @Localizer["BackToJobs"]
         </a>
     </div>
+    </div>
 </div>
 
-@if (Model.Status == MailArchiver.Models.EmailDeletionJobStatus.Running || Model.Status == MailArchiver.Models.EmailDeletionJobStatus.Queued)
-{
-    <script>
-        // Auto-refresh every 2 seconds when job is running or queued
-        setTimeout(function() {
-            location.reload();
-        }, 2000);
-    </script>
-}
+

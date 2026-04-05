@@ -10,6 +10,10 @@ using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Collections;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Reflection;
 using System.Threading.RateLimiting;
 using System.Net;
 using IPNetwork = System.Net.IPNetwork;
@@ -36,6 +40,359 @@ static CookieSecurePolicy ParseCookieSecurePolicy(string? value, CookieSecurePol
         "sameasrequest" => CookieSecurePolicy.SameAsRequest,
         _ => defaultPolicy
     };
+}
+
+static void ApplyFriendlyEnvironmentAliases(ConfigurationManager configuration, string contentRootPath)
+{
+    var aliasMap = BuildFriendlyEnvironmentAliasMap(contentRootPath);
+    if (aliasMap.Count == 0)
+    {
+        return;
+    }
+
+    var environmentVariables = Environment.GetEnvironmentVariables();
+    if (environmentVariables.Count == 0)
+    {
+        return;
+    }
+
+    var aliasesByLength = aliasMap.Keys
+        .OrderByDescending(alias => alias.Length)
+        .ToArray();
+
+    var overrides = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (DictionaryEntry entry in environmentVariables)
+    {
+        var environmentKey = entry.Key?.ToString();
+        var environmentValue = entry.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(environmentKey) || environmentValue is null)
+        {
+            continue;
+        }
+
+        if (environmentKey.Contains("__", StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        if (aliasMap.TryGetValue(environmentKey, out var directTargets))
+        {
+            foreach (var target in directTargets)
+            {
+                if (!HasCanonicalEnvironmentOverride(environmentVariables, target))
+                {
+                    overrides[target] = environmentValue;
+                }
+            }
+
+            continue;
+        }
+
+        foreach (var alias in aliasesByLength)
+        {
+            if (!environmentKey.StartsWith(alias + "_", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!aliasMap.TryGetValue(alias, out var prefixTargets))
+            {
+                continue;
+            }
+
+            var remainder = environmentKey[(alias.Length + 1)..];
+            if (string.IsNullOrWhiteSpace(remainder))
+            {
+                continue;
+            }
+
+            var normalizedRemainder = NormalizeAliasRemainder(remainder);
+            foreach (var target in prefixTargets)
+            {
+                var expandedTarget = $"{target}:{normalizedRemainder}";
+                if (!HasCanonicalEnvironmentOverride(environmentVariables, expandedTarget))
+                {
+                    overrides[expandedTarget] = environmentValue;
+                }
+            }
+
+            break;
+        }
+    }
+
+    if (overrides.Count > 0)
+    {
+        configuration.AddInMemoryCollection(overrides);
+    }
+}
+
+static Dictionary<string, List<string>> BuildFriendlyEnvironmentAliasMap(string contentRootPath)
+{
+    var canonicalPaths = GetKnownConfigurationPaths(contentRootPath);
+    var aliases = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var canonicalPath in canonicalPaths)
+    {
+        AddFriendlyAlias(aliases, BuildCompactAlias(canonicalPath), canonicalPath);
+        AddFriendlyAlias(aliases, BuildReadableAlias(canonicalPath), canonicalPath);
+        AddFriendlyAlias(aliases, BuildHybridAlias(canonicalPath), canonicalPath);
+    }
+
+    AddFriendlyAlias(aliases, "TZ", "TimeZone:DisplayTimeZoneId");
+    AddFriendlyAlias(aliases, "ENCRYPTION_KEY", "Encryption:Key");
+    AddFriendlyAlias(aliases, "DATABASE_URL", "ConnectionStrings:DefaultConnection");
+    AddFriendlyAlias(aliases, "MAILARCHIVE_URL", "Authentication:PublicOrigin");
+    AddFriendlyAlias(aliases, "MAILARCHIVE_URL", "Application:PublicOrigin");
+    AddFriendlyAlias(aliases, "MAILARCHIVE_URL", "HostFiltering:AdditionalAllowedHosts");
+
+    return aliases.ToDictionary(
+        pair => pair.Key,
+        pair => pair.Value.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToList(),
+        StringComparer.OrdinalIgnoreCase);
+}
+
+static HashSet<string> GetKnownConfigurationPaths(string contentRootPath)
+{
+    var knownPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "AllowedHosts",
+        "Application:PublicOrigin",
+        "Authentication:PublicOrigin",
+        "Authentication:CookieSecurePolicy",
+        "ConnectionStrings:DefaultConnection",
+        "DataProtection:KeyPath",
+        "Encryption:Key",
+        "HostFiltering:AdditionalAllowedHosts",
+        "HostFiltering:AllowedHosts",
+        "Npgsql:CommandTimeout",
+        "Refresh:IntervalMinutes",
+        "ReverseProxy:ForwardLimit",
+        "ReverseProxy:KnownNetworks",
+        "ReverseProxy:KnownProxies",
+        "ReverseProxy:RequireHeaderSymmetry"
+    };
+
+    AddOptionPaths<AuthenticationOptions>(knownPaths, AuthenticationOptions.Authentication);
+    AddOptionPaths<OAuthOptions>(knownPaths, OAuthOptions.OAuth);
+    AddOptionPaths<MailSyncOptions>(knownPaths, MailSyncOptions.MailSync);
+    AddOptionPaths<BatchRestoreOptions>(knownPaths, BatchRestoreOptions.BatchRestore);
+    AddOptionPaths<BatchOperationOptions>(knownPaths, BatchOperationOptions.BatchOperation);
+    AddOptionPaths<SelectionOptions>(knownPaths, "Selection");
+    AddOptionPaths<ViewOptions>(knownPaths, "View");
+    AddOptionPaths<TimeZoneOptions>(knownPaths, "TimeZone");
+    AddOptionPaths<RefreshOptions>(knownPaths, RefreshOptions.Refresh);
+    AddOptionPaths<UploadOptions>(knownPaths, UploadOptions.Upload);
+    AddOptionPaths<BandwidthTrackingOptions>(knownPaths, BandwidthTrackingOptions.BandwidthTracking);
+
+    try
+    {
+        var appSettingsPath = Path.Combine(contentRootPath, "appsettings.json");
+        if (!File.Exists(appSettingsPath))
+        {
+            return knownPaths;
+        }
+
+        using var document = JsonDocument.Parse(File.ReadAllText(appSettingsPath));
+        CollectConfigurationPaths(document.RootElement, null, knownPaths);
+    }
+    catch
+    {
+        // Ignore malformed or unavailable appsettings.json and fall back to the built-in path list.
+    }
+
+    return knownPaths;
+}
+
+static void CollectConfigurationPaths(JsonElement element, string? currentPath, ISet<string> collector)
+{
+    if (!string.IsNullOrWhiteSpace(currentPath))
+    {
+        collector.Add(currentPath);
+    }
+
+    switch (element.ValueKind)
+    {
+        case JsonValueKind.Object:
+            foreach (var property in element.EnumerateObject())
+            {
+                var nextPath = string.IsNullOrWhiteSpace(currentPath)
+                    ? property.Name
+                    : $"{currentPath}:{property.Name}";
+
+                CollectConfigurationPaths(property.Value, nextPath, collector);
+            }
+            break;
+
+        case JsonValueKind.Array:
+            var index = 0;
+            foreach (var item in element.EnumerateArray())
+            {
+                var nextPath = string.IsNullOrWhiteSpace(currentPath)
+                    ? index.ToString()
+                    : $"{currentPath}:{index}";
+
+                CollectConfigurationPaths(item, nextPath, collector);
+                index++;
+            }
+            break;
+    }
+}
+
+static void AddOptionPaths<TOptions>(ISet<string> collector, string sectionName)
+{
+    CollectTypePaths(typeof(TOptions), sectionName, collector);
+}
+
+static void CollectTypePaths(Type type, string currentPath, ISet<string> collector)
+{
+    if (string.IsNullOrWhiteSpace(currentPath))
+    {
+        return;
+    }
+
+    collector.Add(currentPath);
+
+    foreach (var property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+    {
+        if (property.GetMethod is null || property.GetIndexParameters().Length > 0)
+        {
+            continue;
+        }
+
+        var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        var propertyPath = $"{currentPath}:{property.Name}";
+        collector.Add(propertyPath);
+
+        if (propertyType == typeof(string) ||
+            propertyType.IsPrimitive ||
+            propertyType.IsEnum ||
+            propertyType == typeof(decimal) ||
+            propertyType == typeof(DateTime) ||
+            propertyType == typeof(DateTimeOffset) ||
+            propertyType == typeof(TimeSpan) ||
+            propertyType == typeof(Guid) ||
+            propertyType.IsArray)
+        {
+            continue;
+        }
+
+        CollectTypePaths(propertyType, propertyPath, collector);
+    }
+}
+
+static void AddFriendlyAlias(IDictionary<string, HashSet<string>> aliases, string alias, string canonicalPath)
+{
+    if (string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(canonicalPath))
+    {
+        return;
+    }
+
+    if (!aliases.TryGetValue(alias, out var values))
+    {
+        values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        aliases[alias] = values;
+    }
+
+    values.Add(canonicalPath);
+}
+
+static string BuildCompactAlias(string canonicalPath)
+{
+    var parts = canonicalPath
+        .Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(NormalizeAliasSegmentCompact)
+        .Where(part => !string.IsNullOrWhiteSpace(part));
+
+    return string.Join("_", parts);
+}
+
+static string BuildReadableAlias(string canonicalPath)
+{
+    var parts = canonicalPath
+        .Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(NormalizeAliasSegmentReadable)
+        .Where(part => !string.IsNullOrWhiteSpace(part));
+
+    return string.Join("_", parts);
+}
+
+static string BuildHybridAlias(string canonicalPath)
+{
+    var parts = canonicalPath
+        .Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(NormalizeAliasSegmentHybrid)
+        .Where(part => !string.IsNullOrWhiteSpace(part));
+
+    return string.Join("_", parts);
+}
+
+static string NormalizeAliasSegmentCompact(string segment)
+{
+    return string.Concat(segment.Where(char.IsLetterOrDigit)).ToUpperInvariant();
+}
+
+static string NormalizeAliasSegmentReadable(string segment)
+{
+    var sanitized = Regex.Replace(segment, @"[^A-Za-z0-9]+", " ");
+    if (string.IsNullOrWhiteSpace(sanitized))
+    {
+        return string.Empty;
+    }
+
+    var readableTokens = new List<string>();
+    foreach (var token in sanitized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        foreach (Match match in Regex.Matches(token, @"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+"))
+        {
+            readableTokens.Add(match.Value.ToUpperInvariant());
+        }
+    }
+
+    return readableTokens.Count == 0
+        ? NormalizeAliasSegmentCompact(segment)
+        : string.Join("_", readableTokens);
+}
+
+static string NormalizeAliasSegmentHybrid(string segment)
+{
+    if (segment.Any(character => !char.IsLetterOrDigit(character)))
+    {
+        var punctuationTokens = Regex.Split(segment, @"[^A-Za-z0-9]+")
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Select(token => token.ToUpperInvariant());
+
+        return string.Join("_", punctuationTokens);
+    }
+
+    return NormalizeAliasSegmentReadable(segment);
+}
+
+static string NormalizeAliasRemainder(string remainder)
+{
+    return string.Join(":", remainder
+        .Split('_', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+}
+
+static bool HasCanonicalEnvironmentOverride(IDictionary environmentVariables, string canonicalPath)
+{
+    var environmentKey = canonicalPath.Replace(':', '_').Replace("_", "__");
+    foreach (DictionaryEntry entry in environmentVariables)
+    {
+        var existingKey = entry.Key?.ToString();
+        if (string.IsNullOrWhiteSpace(existingKey))
+        {
+            continue;
+        }
+
+        if (string.Equals(existingKey, environmentKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static IReadOnlyCollection<string> BuildAllowedHosts(IConfiguration configuration)
@@ -302,6 +659,7 @@ async static Task EnsureMigrationsHistoryTableExists(MailArchiverDbContext conte
 }
 
 var builder = WebApplication.CreateBuilder(args);
+ApplyFriendlyEnvironmentAliases(builder.Configuration, builder.Environment.ContentRootPath);
 
 MailArchiver.Utilities.EmailEncryption.Configure(builder.Configuration);
 
@@ -387,6 +745,10 @@ builder.Services.Configure<TimeZoneOptions>(
 // Add Bandwidth Tracking Options
 builder.Services.Configure<BandwidthTrackingOptions>(
     builder.Configuration.GetSection(BandwidthTrackingOptions.BandwidthTracking));
+
+// Add Refresh Options
+builder.Services.Configure<RefreshOptions>(
+    builder.Configuration.GetSection(RefreshOptions.Refresh));
 
 // Add DateTimeHelper
 builder.Services.AddScoped<MailArchiver.Utilities.DateTimeHelper>();

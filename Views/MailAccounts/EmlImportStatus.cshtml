@@ -2,9 +2,16 @@
 @model MailArchiver.Models.EmlImportJob
 @{
     ViewData["Title"] = Localizer["EmlImportStatusTitle"];
+    var shouldAutoRefresh = Model.Status == MailArchiver.Models.EmlImportJobStatus.Running || Model.Status == MailArchiver.Models.EmlImportJobStatus.Queued;
 }
 
 <div class="container">
+    <div id="emlImportStatusLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-enabled="@(shouldAutoRefresh ? "true" : "false")">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>@Localizer["EmlImportStatusTitle"]</h1>
         <div>
@@ -255,6 +262,7 @@
         </div>
     </div>
 </div>
+    </div>
 
 @functions {
     string FormatFileSize(long bytes)
@@ -268,28 +276,6 @@
             counter++;
         }
         return $"{number:n1} {suffixes[counter]}";
-    }
-}
-
-@if (Model.Status == MailArchiver.Models.EmlImportJobStatus.Running || Model.Status == MailArchiver.Models.EmlImportJobStatus.Queued)
-{
-    @section Scripts {
-        <script>
-            // Auto-refresh page every 5 seconds for running jobs
-            setTimeout(function() {
-                location.reload();
-            }, 5000);
-
-            // Show countdown
-            let countdown = 5;
-            const countdownInterval = setInterval(function() {
-                countdown--;
-                document.title = `(${countdown}s) ${'@Localizer["EmlImportStatusTitle"]'} - @Model.FileName`;
-                if (countdown <= 0) {
-                    clearInterval(countdownInterval);
-                }
-            }, 1000);
-        </script>
     }
 }
 

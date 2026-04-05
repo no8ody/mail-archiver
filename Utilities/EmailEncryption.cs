@@ -27,7 +27,8 @@ namespace MailArchiver.Utilities
                 configuration["MailArchiver:EncryptionKey"],
                 configuration["MAILARCHIVER_ENCRYPTION_KEY"],
                 configuration["MailArchiver__EncryptionKey"],
-                configuration["Encryption__Key"]);
+                configuration["Encryption__Key"],
+                configuration["ENCRYPTION_KEY"]);
         }
 
         public static void EnsureConfigured()
@@ -35,7 +36,7 @@ namespace MailArchiver.Utilities
             if (!TryGetKey(out _))
             {
                 throw new InvalidOperationException(
-                    "Encryption key is required. Configure Encryption:Key, MAILARCHIVER_ENCRYPTION_KEY, MailArchiver__EncryptionKey or Encryption__Key before starting MailArchiver.");
+                    "Encryption key is required. Configure Encryption:Key, ENCRYPTION_KEY, MAILARCHIVER_ENCRYPTION_KEY, MailArchiver__EncryptionKey or Encryption__Key before starting MailArchiver.");
             }
         }
 
@@ -174,6 +175,7 @@ namespace MailArchiver.Utilities
         public static bool TryGetKey(out byte[] key)
         {
             var configured = FirstNonEmpty(
+                Environment.GetEnvironmentVariable("ENCRYPTION_KEY"),
                 Environment.GetEnvironmentVariable("MAILARCHIVER_ENCRYPTION_KEY"),
                 Environment.GetEnvironmentVariable("MailArchiver__EncryptionKey"),
                 Environment.GetEnvironmentVariable("Encryption__Key"),
@@ -194,7 +196,7 @@ namespace MailArchiver.Utilities
             if (!TryGetKey(out var key))
             {
                 throw new InvalidOperationException(
-                    "Encryption key is required. Configure Encryption:Key, MAILARCHIVER_ENCRYPTION_KEY, MailArchiver__EncryptionKey or Encryption__Key before accessing encrypted data.");
+                    "Encryption key is required. Configure Encryption:Key, ENCRYPTION_KEY, MAILARCHIVER_ENCRYPTION_KEY, MailArchiver__EncryptionKey or Encryption__Key before accessing encrypted data.");
             }
 
             return key;

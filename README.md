@@ -77,15 +77,12 @@ services:
     image: s1t5/mailarchiver:latest
     restart: always
     environment:
-      # Database Connection
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey;
-
-      # Authentication Settings
-      - Authentication__Username=admin
-      - Authentication__Password=secure123!
-
-      # TimeZone Settings
-      - TimeZone__DisplayTimeZoneId=Etc/UCT
+      # Preferred aliases (legacy __ variables still work)
+      - DATABASE_URL=Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey;
+      - AUTHENTICATION_USERNAME=admin
+      - AUTHENTICATION_PASSWORD=secure123!
+      - TZ=Etc/UCT
+      - REFRESH_INTERVAL_MINUTES=5
     ports:
       - "5000:5000"
     networks:
@@ -119,30 +116,32 @@ networks:
   postgres:
 ```
 
-3. Edit the database configuration in the `docker-compose.yml` and set a secure password in the `POSTGRES_PASSWORD` variable and the `ConnectionString`.
+3. Edit the database configuration in the `docker-compose.yml` and set a secure password in the `POSTGRES_PASSWORD` variable and the `DATABASE_URL`.
 
-4. Definie a `Authentication__Username` and `Authentication__Password` which is used for the admin user.
+4. Define `AUTHENTICATION_USERNAME` and `AUTHENTICATION_PASSWORD` for the initial admin user. Legacy names like `Authentication__Username` and `Authentication__Password` are still supported.
 
-5. Adjust the `TimeZone__DisplayTimeZoneId` environment variable to match your preferred timezone (default is "Etc/UCT"). You can use any IANA timezone identifier (e.g., "Europe/Berlin", "Asia/Tokyo").
+5. Adjust `TZ` to match your preferred timezone (default is "Etc/UCT"). You can use any IANA timezone identifier (e.g., "Europe/Berlin", "Asia/Tokyo").
 
-6. Configure a reverse proxy of your choice with https to secure access to the application. 
+6. Optionally set `REFRESH_INTERVAL_MINUTES` to control the global background refresh interval. The default is `5` minutes. Fractional values such as `0.5` (30 seconds) are supported, and `0` disables automatic refresh.
+
+7. Configure a reverse proxy of your choice with https to secure access to the application. 
 
 > ⚠️ **Attention**
 > The application itself does not provide encrypted access via https! It must be set up via a reverse proxy! Moreover the application is not build for public internet access!
 
-7. Initial start of the containers:
+8. Initial start of the containers:
 ```bash
 docker compose up -d
 ```
 
-8. Restart containers:
+9. Restart containers:
 ```bash
 docker compose restart
 ```
 
-9. Access the application in your prefered browser.
+10. Access the application in your prefered browser.
 
-10. Login with your defined credentials and add your first email account:
+11. Login with your defined credentials and add your first email account:
 - Navigate to "Email Accounts" section
 - Click "New Account"
 - Enter your server details and credentials
@@ -155,7 +154,126 @@ docker compose restart
 - Regular backups of the PostgreSQL database recommended (see [Backup & Restore Guide](doc/BackupRestore.md) for detailed instructions)
 
 ## ⚙️ Advanced Setup
-For a complete list of all configuration options, please refer to the [Setup Guide](doc/Setup.md).
+The tables below list the preferred environment variables and their shipped defaults.
+
+Legacy ASP.NET Core names such as `Authentication__Username` are still supported, but they are intentionally omitted here to keep the README readable. For detailed behavior and extra examples, see the [Setup Guide](doc/Setup.md).
+
+### Runtime & Access
+
+| Variable | Default |
+|---|---|
+| ASPNETCORE_URLS | http://0.0.0.0:5000 |
+| DATABASE_URL | Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey |
+| MAILARCHIVE_URL | empty |
+| ALLOWED_HOSTS | localhost;127.0.0.1;[::1] |
+| APPLICATION_PUBLIC_ORIGIN | empty |
+| AUTHENTICATION_ENABLED | true |
+| AUTHENTICATION_USERNAME | admin |
+| AUTHENTICATION_PASSWORD | secure123! |
+| AUTHENTICATION_SESSION_TIMEOUT_MINUTES | 60 |
+| AUTHENTICATION_COOKIE_NAME | MailArchiverAuth |
+| AUTHENTICATION_COOKIE_SAME_SITE | Strict |
+| AUTHENTICATION_COOKIE_SECURE_POLICY | SameAsRequest |
+| AUTHENTICATION_PUBLIC_ORIGIN | empty |
+
+### OAuth
+
+| Variable | Default |
+|---|---|
+| OAUTH_ENABLED | false |
+| OAUTH_AUTHORITY | empty |
+| OAUTH_CLIENT_ID | empty |
+| OAUTH_CLIENT_SECRET | empty |
+| OAUTH_CLIENT_SCOPES_0 | openid |
+| OAUTH_CLIENT_SCOPES_1 | profile |
+| OAUTH_CLIENT_SCOPES_2 | email |
+| OAUTH_DISABLE_PASSWORD_LOGIN | false |
+| OAUTH_AUTO_REDIRECT | false |
+| OAUTH_AUTO_APPROVE_USERS | false |
+| OAUTH_ADMIN_EMAILS_N | empty |
+
+### Mail Sync
+
+| Variable | Default |
+|---|---|
+| MAIL_SYNC_INTERVAL_MINUTES | 15 |
+| MAIL_SYNC_TIMEOUT_MINUTES | 120 |
+| MAIL_SYNC_CONNECTION_TIMEOUT_SECONDS | 300 |
+| MAIL_SYNC_COMMAND_TIMEOUT_SECONDS | 600 |
+| MAIL_SYNC_ALWAYS_FORCE_FULL_SYNC | false |
+| MAIL_SYNC_IGNORE_SELF_SIGNED_CERT | false |
+
+### Batch Operations & Selection
+
+| Variable | Default |
+|---|---|
+| BATCH_RESTORE_ASYNC_THRESHOLD | 50 |
+| BATCH_RESTORE_MAX_SYNC_EMAILS | 150 |
+| BATCH_RESTORE_MAX_ASYNC_EMAILS | 50000 |
+| BATCH_RESTORE_SESSION_TIMEOUT_MINUTES | 30 |
+| BATCH_RESTORE_DEFAULT_BATCH_SIZE | 50 |
+| BATCH_OPERATION_BATCH_SIZE | 50 |
+| BATCH_OPERATION_PAUSE_BETWEEN_EMAILS_MS | 50 |
+| BATCH_OPERATION_PAUSE_BETWEEN_BATCHES_MS | 200 |
+| SELECTION_MAX_SELECTABLE_EMAILS | 250 |
+
+### UI & Refresh
+
+| Variable | Default |
+|---|---|
+| VIEW_DEFAULT_TO_PLAIN_TEXT | true |
+| VIEW_BLOCK_EXTERNAL_RESOURCES | true |
+| TZ | Etc/UCT |
+| REFRESH_INTERVAL_MINUTES | 5 |
+
+### Bandwidth & Maintenance
+
+| Variable | Default |
+|---|---|
+| BANDWIDTH_TRACKING_ENABLED | false |
+| BANDWIDTH_TRACKING_DAILY_LIMIT_MB | 25000 |
+| BANDWIDTH_TRACKING_WARNING_THRESHOLD_PERCENT | 80 |
+| BANDWIDTH_TRACKING_PAUSE_HOURS_ON_LIMIT | 24 |
+| BANDWIDTH_TRACKING_TRACK_UPLOAD_BYTES | false |
+| DATABASE_MAINTENANCE_ENABLED | false |
+| DATABASE_MAINTENANCE_DAILY_EXECUTION_TIME | 02:00 |
+| DATABASE_MAINTENANCE_TIMEOUT_MINUTES | 30 |
+
+### Upload Limits
+
+| Variable | Default |
+|---|---|
+| UPLOAD_MAX_FILE_SIZE_GB | 2 |
+| UPLOAD_KEEP_ALIVE_TIMEOUT_MINUTES | 10 |
+| UPLOAD_REQUEST_HEADERS_TIMEOUT_SECONDS | 30 |
+| UPLOAD_MEMORY_BUFFER_THRESHOLD_MB | 1 |
+| UPLOAD_MAX_ARCHIVE_ENTRIES | 10000 |
+| UPLOAD_MAX_ARCHIVE_ENTRY_SIZE_MB | 50 |
+| UPLOAD_MAX_ARCHIVE_EXPANDED_SIZE_GB | 2 |
+| UPLOAD_MAX_ARCHIVE_COMPRESSION_RATIO | 100 |
+| UPLOAD_NOTES | Security-hardened upload defaults with bounded ZIP processing |
+
+### Reverse Proxy & Host Filtering
+
+| Variable | Default |
+|---|---|
+| REVERSE_PROXY_FORWARD_LIMIT | 1 |
+| REVERSE_PROXY_REQUIRE_HEADER_SYMMETRY | true |
+| REVERSE_PROXY_KNOWN_PROXIES_N | empty |
+| REVERSE_PROXY_KNOWN_NETWORKS_N | empty |
+| HOST_FILTERING_ALLOWED_HOSTS | empty |
+| HOST_FILTERING_ADDITIONAL_ALLOWED_HOSTS | empty |
+
+### Storage, Encryption & Logging
+
+| Variable | Default |
+|---|---|
+| DATA_PROTECTION_KEY_PATH | /app/DataProtection-Keys |
+| ENCRYPTION_KEY | empty |
+| NPGSQL_COMMAND_TIMEOUT | 900 |
+| LOGGING_LOG_LEVEL_DEFAULT | Information |
+| LOGGING_LOG_LEVEL_MICROSOFT_ASP_NET_CORE | Warning |
+| LOGGING_LOG_LEVEL_MICROSOFT_ENTITY_FRAMEWORK_CORE_DATABASE_COMMAND | Warning |
 
 
 ## 📋 Technical Details

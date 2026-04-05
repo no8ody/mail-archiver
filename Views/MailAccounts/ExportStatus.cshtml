@@ -3,9 +3,16 @@
 
 @{
     ViewData["Title"] = @Localizer["ExportStatus"];
+    var shouldAutoRefresh = Model.Status == MailArchiver.Models.AccountExportJobStatus.Queued || Model.Status == MailArchiver.Models.AccountExportJobStatus.Running;
 }
 
 <div class="container-fluid">
+    <div id="exportStatusLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-enabled="@(shouldAutoRefresh ? "true" : "false")">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
     <div class="row">
         <div class="col-12">
             <div class="card">
@@ -168,7 +175,7 @@
                                 </a>
                             }
                             
-                            <button type="button" class="btn btn-outline-primary" onclick="location.reload()">
+                            <button type="button" class="btn btn-outline-primary" onclick="window.mailArchiver.refreshContainerById('exportStatusLiveContent')">
                                 <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                             </button>
                         </div>
@@ -177,32 +184,8 @@
             </div>
         </div>
     </div>
+    </div>
 </div>
-
-@section Scripts {
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Auto-refresh if the job is still running
-            @if (Model.Status == MailArchiver.Models.AccountExportJobStatus.Queued || Model.Status == MailArchiver.Models.AccountExportJobStatus.Running)
-            {
-                <text>
-                setTimeout(function() {
-                    location.reload();
-                }, 5000); // Refresh every 5 seconds
-                </text>
-            }
-            else if (Model.Status == MailArchiver.Models.AccountExportJobStatus.Completed)
-            {
-                <text>
-                // Show success notification
-                if (typeof window.showNotification === 'function') {
-                    window.showNotification('@Localizer["ExportCompleted"]', 'success');
-                }
-                </text>
-            }
-        });
-    </script>
-}
 
 <!-- Bootstrap Modal for Cancel Confirmation -->
 <div class="modal fade" id="cancelExportModal" tabindex="-1" aria-labelledby="cancelExportModalLabel" aria-hidden="true">

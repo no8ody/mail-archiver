@@ -23,86 +23,59 @@ services:
     image: s1t5/mailarchiver:latest
     restart: always
     environment:
-      # Database Connection
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey;
-
-      # Authentication Settings
-      - Authentication__Username=admin
-      - Authentication__Password=secure123!
-      - Authentication__SessionTimeoutMinutes=60
-      - Authentication__CookieName=MailArchiverAuth
-      - Authentication__CookieSameSite=Lax
-
-      # MailSync Settings
-      - MailSync__IntervalMinutes=15
-      - MailSync__TimeoutMinutes=60
-      - MailSync__ConnectionTimeoutSeconds=180
-      - MailSync__CommandTimeoutSeconds=300
-      - MailSync__AlwaysForceFullSync=false
-      - MailSync__IgnoreSelfSignedCert=false
-
-      # BatchRestore Settings
-      - BatchRestore__AsyncThreshold=50
-      - BatchRestore__MaxSyncEmails=150
-      - BatchRestore__MaxAsyncEmails=50000
-      - BatchRestore__SessionTimeoutMinutes=30
-      - BatchRestore__DefaultBatchSize=50
-
-      # BatchOperation Settings
-      - BatchOperation__BatchSize=50
-      - BatchOperation__PauseBetweenEmailsMs=50
-      - BatchOperation__PauseBetweenBatchesMs=250
-
-      # Bandwidth Tracking Settings (for IMAP rate limit handling)
-      - BandwidthTracking__Enabled=false
-      - BandwidthTracking__DailyLimitMb=25000
-      - BandwidthTracking__WarningThresholdPercent=80
-      - BandwidthTracking__PauseHoursOnLimit=24
-      - BandwidthTracking__TrackUploadBytes=false
-
-      # Selection Settings
-      - Selection__MaxSelectableEmails=250
-
-      # View Settings (Privacy & Display)
-      - View__DefaultToPlainText=true
-      - View__BlockExternalResources=false
-
-      # Npgsql Settings
-      - Npgsql__CommandTimeout=900
-
-      # Upload Settings for MBox and EML files
-      - Upload__MaxFileSizeGB=10
-      - Upload__KeepAliveTimeoutHours=4
-      - Upload__RequestHeadersTimeoutHours=2
-
-      # TimeZone Settings
-      - TimeZone__DisplayTimeZoneId=Etc/UCT
-
-      # Database Maintenance Settings (Optional)
-      - DatabaseMaintenance__Enabled=false
-      - DatabaseMaintenance__DailyExecutionTime=02:00
-      - DatabaseMaintenance__TimeoutMinutes=30
-
-      # Logging Settings (Optional - defaults to Information level)
-      - Logging__LogLevel__Default=Information
-      - Logging__LogLevel__Microsoft_AspNetCore=Warning
-      - Logging__LogLevel__Microsoft_EntityFrameworkCore_Database_Command=Warning
-
-      # Security Settings
-      - AllowedHosts=mailarchiver.example.com;www.mailarchiver.example.com
-
-      # OIDC Configuration (see OIDC_Implementation.md for detailed setup)
-      - OAuth__Enabled=true
-      - OAuth__Authority=https://example.com
-      - OAuth__ClientId=YOUR-CLIENT-ID
-      - OAuth__ClientSecret=YOUR-CLIENT-SECRET
-      - OAuth__ClientScopes__0=openid
-      - OAuth__ClientScopes__1=profile
-      - OAuth__ClientScopes__2=email
-      - OAuth__DisablePasswordLogin=false
-      - OAuth__AutoRedirect=false
-      - OAuth__AutoApproveUsers=false
-      - OAuth__AdminEmails__0=admin@example.com
+      # Preferred aliases (legacy __ variables still work)
+      - DATABASE_URL=Host=postgres;Database=MailArchiver;Username=mailuser;Password=masterkey;
+      - AUTHENTICATION_USERNAME=admin
+      - AUTHENTICATION_PASSWORD=secure123!
+      - AUTHENTICATION_SESSION_TIMEOUT_MINUTES=60
+      - AUTHENTICATION_COOKIE_NAME=MailArchiverAuth
+      - AUTHENTICATION_COOKIE_SAME_SITE=Lax
+      - MAIL_SYNC_INTERVAL_MINUTES=15
+      - MAIL_SYNC_TIMEOUT_MINUTES=60
+      - MAIL_SYNC_CONNECTION_TIMEOUT_SECONDS=180
+      - MAIL_SYNC_COMMAND_TIMEOUT_SECONDS=300
+      - MAIL_SYNC_ALWAYS_FORCE_FULL_SYNC=false
+      - MAIL_SYNC_IGNORE_SELF_SIGNED_CERT=false
+      - BATCH_RESTORE_ASYNC_THRESHOLD=50
+      - BATCH_RESTORE_MAX_SYNC_EMAILS=150
+      - BATCH_RESTORE_MAX_ASYNC_EMAILS=50000
+      - BATCH_RESTORE_SESSION_TIMEOUT_MINUTES=30
+      - BATCH_RESTORE_DEFAULT_BATCH_SIZE=50
+      - BATCH_OPERATION_BATCH_SIZE=50
+      - BATCH_OPERATION_PAUSE_BETWEEN_EMAILS_MS=50
+      - BATCH_OPERATION_PAUSE_BETWEEN_BATCHES_MS=250
+      - BANDWIDTH_TRACKING_ENABLED=false
+      - BANDWIDTH_TRACKING_DAILY_LIMIT_MB=25000
+      - BANDWIDTH_TRACKING_WARNING_THRESHOLD_PERCENT=80
+      - BANDWIDTH_TRACKING_PAUSE_HOURS_ON_LIMIT=24
+      - BANDWIDTH_TRACKING_TRACK_UPLOAD_BYTES=false
+      - SELECTION_MAX_SELECTABLE_EMAILS=250
+      - VIEW_DEFAULT_TO_PLAIN_TEXT=true
+      - VIEW_BLOCK_EXTERNAL_RESOURCES=false
+      - NPGSQL_COMMAND_TIMEOUT=900
+      - UPLOAD_MAX_FILE_SIZE_GB=10
+      - UPLOAD_KEEP_ALIVE_TIMEOUT_MINUTES=240
+      - UPLOAD_REQUEST_HEADERS_TIMEOUT_SECONDS=7200
+      - TZ=Etc/UCT
+      - REFRESH_INTERVAL_MINUTES=5
+      - DATABASE_MAINTENANCE_ENABLED=false
+      - DATABASE_MAINTENANCE_DAILY_EXECUTION_TIME=02:00
+      - DATABASE_MAINTENANCE_TIMEOUT_MINUTES=30
+      - LOGGING_LOG_LEVEL_DEFAULT=Information
+      - LOGGING_LOG_LEVEL_MICROSOFT_ASPNETCORE=Warning
+      - LOGGING_LOG_LEVEL_MICROSOFT_ENTITYFRAMEWORKCORE_DATABASE_COMMAND=Warning
+      - ALLOWED_HOSTS=mailarchiver.example.com;www.mailarchiver.example.com
+      - OAUTH_ENABLED=true
+      - OAUTH_AUTHORITY=https://example.com
+      - OAUTH_CLIENT_ID=YOUR-CLIENT-ID
+      - OAUTH_CLIENT_SECRET=YOUR-CLIENT-SECRET
+      - OAUTH_CLIENT_SCOPES_0=openid
+      - OAUTH_CLIENT_SCOPES_1=profile
+      - OAUTH_CLIENT_SCOPES_2=email
+      - OAUTH_DISABLE_PASSWORD_LOGIN=false
+      - OAUTH_AUTO_REDIRECT=false
+      - OAUTH_AUTO_APPROVE_USERS=false
+      - OAUTH_ADMIN_EMAILS_0=admin@example.com
     ports:
       - "5000:5000"
     networks:
@@ -135,13 +108,15 @@ networks:
   postgres:
 ```
 
-3. Edit the database configuration in the `docker-compose.yml` and set a secure password in the `POSTGRES_PASSWORD` variable and the `ConnectionString`.
+3. Edit the database configuration in the `docker-compose.yml` and set a secure password in the `POSTGRES_PASSWORD` variable and the `DATABASE_URL`.
 
-4. If you want to use authentication (which is strongly recommended), define a `Authentication__Username` and `Authentication__Password` which is used for the admin user.
+4. If you want to use authentication (which is strongly recommended), define `AUTHENTICATION_USERNAME` and `AUTHENTICATION_PASSWORD` for the admin user. Legacy names such as `Authentication__Username` and `Authentication__Password` remain supported.
 
-5. Adjust the `TimeZone__DisplayTimeZoneId` environment variable to match your preferred timezone (default is "Etc/UCT"). You can use any IANA timezone identifier (e.g., "Europe/Berlin", "Asia/Tokyo").
+5. Adjust `TZ` to match your preferred timezone (default is "Etc/UCT"). You can use any IANA timezone identifier (e.g., "Europe/Berlin", "Asia/Tokyo").
 
-6. Optionally configure the `Logging__LogLevel` environment variables to control the verbosity of application logs. See the Logging Settings section below for available options.
+6. Optionally set `REFRESH_INTERVAL_MINUTES` to control the global background refresh interval. The default is `5` minutes. Fractional values such as `0.5` (30 seconds) are supported, and `0` disables automatic refresh.
+
+7. Optionally configure the `LOGGING_LOG_LEVEL_*` environment variables to control the verbosity of application logs. See the Logging Settings section below for available options.
 
 7. Configure a reverse proxy of your choice with https and authentication to secure access to the application. 
 
@@ -168,15 +143,18 @@ docker compose restart
 
 ## 📚 Environment Variable Explanations
 
+Mail Archiver now accepts preferred single-underscore aliases like `AUTHENTICATION_USERNAME` in addition to the legacy ASP.NET style names such as `Authentication__Username`. Both forms are supported. Some common shortcuts are also available: `DATABASE_URL` for `ConnectionStrings__DefaultConnection`, `TZ` for `TimeZone__DisplayTimeZoneId`, `ENCRYPTION_KEY` for `Encryption__Key`, and `MAILARCHIVE_URL` for the public-origin / additional-host settings.
+
+
 ### 🗄️ Database Connection
-- `ConnectionStrings__DefaultConnection`: The connection string to the PostgreSQL database. Modify the `Host`, `Database`, `Username`, and `Password` values as needed.
+- `DATABASE_URL` (legacy: `ConnectionStrings__DefaultConnection`): The connection string to the PostgreSQL database. Modify the `Host`, `Database`, `Username`, and `Password` values as needed.
 
 ### 🔐 Authentication Settings
-- `Authentication__Username`: The username for the admin account.
-- `Authentication__Password`: The password for the admin account.
-- `Authentication__SessionTimeoutMinutes`: The session timeout in minutes.
-- `Authentication__CookieName`: The name of the authentication cookie.
-- `Authentication__CookieSameSite`: Configures the SameSite attribute for authentication, session, and CSRF protection cookies. Valid values are:
+- `AUTHENTICATION_USERNAME` (legacy: `Authentication__Username`): The username for the admin account.
+- `AUTHENTICATION_PASSWORD` (legacy: `Authentication__Password`): The password for the admin account.
+- `AUTHENTICATION_SESSION_TIMEOUT_MINUTES` (legacy: `Authentication__SessionTimeoutMinutes`): The session timeout in minutes.
+- `AUTHENTICATION_COOKIE_NAME` (legacy: `Authentication__CookieName`): The name of the authentication cookie.
+- `AUTHENTICATION_COOKIE_SAME_SITE` (legacy: `Authentication__CookieSameSite`): Configures the SameSite attribute for authentication, session, and CSRF protection cookies. Valid values are:
   - `Strict` (default): Maximum security. Cookies are only sent with same-site requests. This may cause issues when navigating to the application from external links (e.g., clicking a link from another website), as the existing session won't be recognized.
   - `Lax`: Recommended when using a reverse proxy. Cookies are sent with top-level navigations and same-site requests, allowing users to follow external links to the application while maintaining CSRF protection for POST requests.
   - `None`: Cookies are sent with all requests. Requires HTTPS and the `Secure` attribute. Only use this if you have specific cross-site requirements and understand the security implications.
@@ -243,7 +221,10 @@ docker compose restart
 - `Upload__RequestHeadersTimeoutHours`: The timeout for request headers in hours.
 
 ### 🕐 TimeZone Settings
-- `TimeZone__DisplayTimeZoneId`: The time zone used for displaying email timestamps in the UI. Uses IANA time zone identifiers (e.g., "Europe/Berlin", "Asia/Tokyo"). Default is "Etc/UCT" for backward compatibility. When importing emails timestamps will be converted to this time zone for display purposes.
+- `TZ` (legacy: `TimeZone__DisplayTimeZoneId`): The time zone used for displaying email timestamps in the UI. Uses IANA time zone identifiers (e.g., "Europe/Berlin", "Asia/Tokyo"). Default is "Etc/UCT". When importing emails timestamps will be converted to this time zone for display purposes.
+
+### 🔄 Refresh Settings
+- `REFRESH_INTERVAL_MINUTES` (legacy: `Refresh__IntervalMinutes`): The global auto-refresh interval for live dashboard, archive, and status pages. The default is `5` minutes. Fractional minute values such as `0.5` are supported. Set the value to `0` to disable automatic refresh.
 
 ### 🔧 Database Maintenance Settings
 - `DatabaseMaintenance__Enabled`: Enable or disable automatic daily database maintenance (true/false). Default is `false`. When enabled, the system will automatically run VACUUM ANALYZE operations to optimize database performance and prevent bloat. See [Database Maintenance Guide](DatabaseMaintenance.md) for more details.
