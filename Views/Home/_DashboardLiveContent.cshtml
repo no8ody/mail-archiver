@@ -1,0 +1,319 @@
+﻿@using MailArchiver.Services
+@inject MailArchiver.Services.IAuthenticationService AuthService
+@inject Microsoft.Extensions.Localization.IStringLocalizer<MailArchiver.SharedResource> Localizer
+@model MailArchiver.Models.ViewModels.DashboardViewModel
+
+<div id="dashboardLiveContent"
+         data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
+         data-auto-refresh-enabled="true">
+        <div class="d-flex justify-content-end mb-2">
+            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
+        </div>
+
+    @if (AuthService.IsCurrentUserAdmin(Context) && ViewBag.ActiveJobsCount != null && ViewBag.ActiveJobsCount > 0)
+    {
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-info alert-dismissible fade show">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
+                        <div>
+                            <i class="bi bi-clock-history me-2"></i>
+                            <strong>@Localizer["BackgroundJobsActive"]</strong> @ViewBag.ActiveJobsCount job(s) are currently running.
+                        </div>
+                        <div>
+                            <a asp-controller="Emails" asp-action="Jobs" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-eye me-1"></i> @Localizer["ViewJobs"]
+                            </a>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row mb-4">
+        <div class="col-6 col-md-3 mb-3">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-1">@Localizer["Emails"]</h6>
+                            <h5 class="mb-0">@Model.TotalEmails.ToString("N0")</h5>
+                        </div>
+                        <i class="bi bi-envelope fs-1 opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 mb-3">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-1">@Localizer["Accounts"]</h6>
+                            <h5 class="mb-0">@Model.TotalAccounts.ToString("N0")</h5>
+                        </div>
+                        <i class="bi bi-person fs-1 opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 mb-3">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-1">@Localizer["AttachmentsCount"]</h6>
+                            <h5 class="mb-0">@Model.TotalAttachments.ToString("N0")</h5>
+                        </div>
+                        <i class="bi bi-paperclip fs-1 opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 mb-3">
+            <div class="card bg-warning text-dark h-100">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-1">@Localizer["Storage"]</h6>
+                            <h5 class="mb-0">@Model.TotalStorageUsed</h5>
+                        </div>
+                        <i class="bi bi-hdd fs-1 opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12 col-lg-8 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="h6 mb-0">@Localizer["EmailsPerMonth"]</span>
+                    <span class="badge bg-primary">@Localizer["Last12Months"]</span>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="monthlyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="h6 mb-0">@Localizer["TopSenders"]</span>
+                    <span class="badge bg-primary">@Localizer["Incoming"]</span>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="topSendersChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12 col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="h6 mb-0">@Localizer["AccountOverview"]</span>
+                    <a asp-controller="MailAccounts" asp-action="Index" class="btn btn-sm btn-outline-primary">@Localizer["ShowAll"]</a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive d-none d-md-block">
+                        <table class="table table-sm table-striped table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>@Localizer["Name"]</th>
+                                    <th class="d-none d-lg-table-cell">@Localizer["EmailAddress"]</th>
+                                    <th>@Localizer["Count"]</th>
+                                    <th>@Localizer["LastSync"]</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var account in Model.EmailsPerAccount)
+                                {
+                                    <tr>
+                                        <td>@account.AccountName</td>
+                                        <td class="d-none d-lg-table-cell small">@account.EmailAddress</td>
+                                        <td>@account.EmailCount.ToString("N0")</td>
+                                        <td>
+                                            @if (DateTime.Now.Subtract(account.LastSyncTime).TotalHours < 24)
+                                            {
+                                                <span class="badge bg-success small">
+                                                    <span class="utc-timestamp" data-utc-time="@account.LastSyncTime.ToString("yyyy-MM-ddTHH:mm:ss")">
+                                                        @account.LastSyncTime.ToString("g")
+                                                    </span>
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-warning small">
+                                                    <span class="utc-timestamp" data-utc-time="@account.LastSyncTime.ToString("yyyy-MM-ddTHH:mm:ss")">
+                                                        @account.LastSyncTime.ToString("g")
+                                                    </span>
+                                                </span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                                @if (!Model.EmailsPerAccount.Any())
+                                {
+                                    <tr>
+                                        <td colspan="4" class="text-center py-3 text-muted">
+                                            <i class="bi bi-info-circle me-2"></i>@Localizer["NoEmailAccountsFound"]
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-md-none">
+                        @foreach (var account in Model.EmailsPerAccount)
+                        {
+                            <div class="border-bottom px-3 py-2">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <h6 class="mb-1">@account.AccountName</h6>
+                                        <p class="mb-1 small text-muted">@account.EmailAddress</p>
+                                        <p class="mb-0 small">
+                                            <strong>@account.EmailCount.ToString("N0")</strong> @Localizer["Emails"]
+                                        </p>
+                                    </div>
+                                    <div class="text-end">
+                                        @if (DateTime.Now.Subtract(account.LastSyncTime).TotalHours < 24)
+                                        {
+                                            <span class="badge bg-success">
+                                                <span class="utc-timestamp" data-utc-time="@account.LastSyncTime.ToString("yyyy-MM-ddTHH:mm:ss")">
+                                                    @account.LastSyncTime.ToString("g")
+                                                </span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning">
+                                                <span class="utc-timestamp" data-utc-time="@account.LastSyncTime.ToString("yyyy-MM-ddTHH:mm:ss")">
+                                                    @account.LastSyncTime.ToString("g")
+                                                </span>
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        @if (!Model.EmailsPerAccount.Any())
+                        {
+                            <div class="text-center py-4 text-muted">
+                                <i class="bi bi-info-circle me-2"></i>@Localizer["NoEmailAccountsFound"]
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="h6 mb-0">@Localizer["RecentEmails"]</span>
+                    <a asp-controller="Emails" asp-action="Index" class="btn btn-sm btn-outline-primary">@Localizer["ShowAll"]</a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        @foreach (var email in Model.RecentEmails)
+                        {
+                            <a href="@Url.Action("Details", "Emails", new { id = email.Id })" class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between align-items-start">
+                                    <div class="flex-grow-1 me-2">
+                                        <h6 class="mb-1 text-truncate">
+                                            @if(email.IsOutgoing)
+                                            {
+                                                <i class="bi bi-arrow-up-right text-primary"></i>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-arrow-down-left text-success"></i>
+                                            }
+                                            @email.Subject
+                                        </h6>
+                                        <p class="mb-1 small text-truncate">@email.From</p>
+                                        <small class="text-muted">
+                                            <i class="bi bi-person me-1"></i>@email.MailAccount.Name
+                                        </small>
+                                    </div>
+                                    <small class="text-muted text-nowrap">@email.SentDate.ToString("g")</small>
+                                </div>
+                            </a>
+                        }
+                        @if (!Model.RecentEmails.Any())
+                        {
+                            <div class="list-group-item text-center py-4 text-muted">
+                                <i class="bi bi-inbox me-2"></i>@Localizer["NoEmailsArchivedYet"]
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">@Localizer["QuickActions"]</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-6 col-md-3">
+                            <a asp-controller="Emails" asp-action="Index" class="btn btn-outline-primary w-100">
+                                <i class="bi bi-search d-block mb-1"></i>
+                                <small>@Localizer["SearchArchive"]</small>
+                            </a>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <a asp-controller="MailAccounts" asp-action="Create" class="btn btn-outline-success w-100">
+                                <i class="bi bi-plus-circle d-block mb-1"></i>
+                                <small>@Localizer["AddAccount"]</small>
+                            </a>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <a asp-controller="MailAccounts" asp-action="Index" class="btn btn-outline-info w-100">
+                                <i class="bi bi-person-gear d-block mb-1"></i>
+                                <small>@Localizer["ManageAccounts"]</small>
+                            </a>
+                        </div>
+                        @if (AuthService.IsCurrentUserAdmin(Context))
+                        {
+                            <div class="col-6 col-md-3">
+                                <a asp-controller="Emails" asp-action="Jobs" class="btn btn-outline-warning w-100 position-relative">
+                                    <i class="bi bi-clock-history d-block mb-1"></i>
+                                    <small>@Localizer["BackgroundJobs"]</small>
+                                    @if (ViewBag.ActiveJobsCount != null && ViewBag.ActiveJobsCount > 0)
+                                    {
+                                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                            @ViewBag.ActiveJobsCount
+                                            <span class="visually-hidden">@Localizer["ActiveJobs"]</span>
+                                        </span>
+                                    }
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="application/json" id="dashboardChartData">
+        @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            monthlyLabels = Model.EmailsByMonth.Select(m => m.Period),
+            monthlyData = Model.EmailsByMonth.Select(m => m.Count),
+            topSenderLabels = Model.TopSenders.Select(s => s.EmailAddress.Length > 25 ? s.EmailAddress.Substring(0, 25) + "..." : s.EmailAddress),
+            topSenderData = Model.TopSenders.Select(s => s.Count)
+        }))
+    </script>
+    </div>
