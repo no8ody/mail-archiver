@@ -1116,6 +1116,19 @@ app.UseRequestLocalization(new RequestLocalizationOptions()
     .AddSupportedCultures("en", "en-GB", "de", "es", "fr", "it", "sl", "nl", "ru", "hu", "pl")
     .AddSupportedUICultures("en", "en-GB", "de", "es", "fr", "it", "sl", "nl", "ru", "hu", "pl"));
 app.UseRouting();
+app.Use(async (context, next) =>
+{
+    await next();
+
+    if (context.Request.Headers.ContainsKey("X-MailArchiver-Fragment"))
+    {
+        context.Response.Headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate";
+        context.Response.Headers["Pragma"] = "no-cache";
+        context.Response.Headers["Expires"] = "0";
+        context.Response.Headers["Vary"] = "X-MailArchiver-Fragment";
+    }
+});
+
 app.UseSession();
 
 // Add Rate Limiting Middleware

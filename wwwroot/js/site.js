@@ -141,6 +141,13 @@
         return container.dataset.autoRefreshUrl || window.location.href;
     }
 
+    function buildRefreshRequestUrl(container) {
+        const baseUrl = getRefreshUrl(container);
+        const url = new URL(baseUrl, window.location.origin);
+        url.searchParams.set('_mar_refresh', Date.now().toString());
+        return url.toString();
+    }
+
     function isAutoRefreshEnabled(container) {
         return container.dataset.autoRefreshEnabled !== 'false';
     }
@@ -217,12 +224,15 @@
         autoRefreshStates.set(containerId, state);
 
         try {
-            const response = await fetch(getRefreshUrl(currentContainer), {
+            const response = await fetch(buildRefreshRequestUrl(currentContainer), {
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
-                    'X-MailArchiver-Fragment': containerId
+                    'X-MailArchiver-Fragment': containerId,
+                    'Cache-Control': 'no-cache, no-store, max-age=0',
+                    'Pragma': 'no-cache'
                 },
-                cache: 'no-store'
+                cache: 'no-store',
+                credentials: 'same-origin'
             });
 
             if (!response.ok) {
