@@ -5,10 +5,7 @@ networks:
 
 services:
   mailarchive-app:
-    build:
-      context: .
-      args:
-        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    image: no8odycares/mailarchiver
     environment:
       MAILARCHIVER_GIT_COMMIT: ${GIT_COMMIT:-unknown}
       ASPNETCORE_URLS: http://0.0.0.0:5000
@@ -18,7 +15,7 @@ services:
       DATABASE_URL: Host=postgres;Database=${POSTGRES_DB:-MailArchiver};Username=${POSTGRES_USER:-mailuser};Password=${POSTGRES_PASSWORD:-masterkey};
       AUTHENTICATION_USERNAME: ${DEFAULT_USER:-admin}
       AUTHENTICATION_PASSWORD: ${DEFAULT_PASSWORD:-secure123!}
-      ENCRYPTION_KEY: ${MAILARCHIVER_ENCRYPTION_KEY:-}
+      ENCRYPTION_KEY: ${MAILARCHIVER_ENCRYPTION_KEY:?-}
       TZ: ${TZ:-Etc/UCT}
       REFRESH_INTERVAL_MINUTES: ${REFRESH_INTERVAL_MINUTES:-5}
       REVERSE_PROXY_KNOWN_NETWORKS_0: ${REVERSE_PROXY_KNOWN_NETWORKS_0:-172.16.0.0/12}
@@ -44,7 +41,7 @@ services:
       - postgres
 
   postgres:
-    image: postgres:14-alpine
+    image: postgres:17-alpine
     restart: always
     environment:
       POSTGRES_DB: MailArchiver
