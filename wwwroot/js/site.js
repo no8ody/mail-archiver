@@ -105,17 +105,44 @@
         themeToggleInitialized = true;
     }
 
-    function updateLastUpdatedElements(root = document) {
-        const elements = root.querySelectorAll('[data-auto-refresh-last-updated]');
+    function formatRefreshTimestamp(date = new Date()) {
+        const culture = document.documentElement.lang || undefined;
+        return date.toLocaleString(culture, {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    function updatePageLastUpdated(date = new Date()) {
+        const elements = document.querySelectorAll('[data-page-last-updated]');
         if (!elements.length) {
             return;
         }
 
-        const timestamp = new Date().toLocaleTimeString();
+        const isoTimestamp = date.toISOString().replace(/\.\d{3}Z$/, '');
+        const formattedTimestamp = formatRefreshTimestamp(date);
+
         elements.forEach(element => {
-            const label = element.dataset.autoRefreshLastUpdated || '';
-            element.textContent = label ? `${label} ${timestamp}` : timestamp;
+            element.textContent = formattedTimestamp;
+            element.setAttribute('data-utc-time', isoTimestamp);
         });
+    }
+
+    function updateLastUpdatedElements(root = document, date = new Date()) {
+        const elements = root.querySelectorAll('[data-auto-refresh-last-updated]');
+        if (elements.length) {
+            const timestamp = formatRefreshTimestamp(date);
+            elements.forEach(element => {
+                const label = element.dataset.autoRefreshLastUpdated || '';
+                element.textContent = label ? `${label} ${timestamp}` : timestamp;
+            });
+        }
+
+        updatePageLastUpdated(date);
     }
 
     function initializeDynamicUi(root = document) {
@@ -139,6 +166,13 @@
 
     function getRefreshUrl(container) {
         return container.dataset.autoRefreshUrl || window.location.href;
+    }
+
+    function buildRefreshRequestUrl(container) {
+        const baseUrl = getRefreshUrl(container);
+        const url = new URL(baseUrl, window.location.origin);
+        url.searchParams.set('_mar_refresh', Date.now().toString());
+        return url.toString();
     }
 
     function isAutoRefreshEnabled(container) {
@@ -217,12 +251,15 @@
         autoRefreshStates.set(containerId, state);
 
         try {
-            const response = await fetch(getRefreshUrl(currentContainer), {
+            const response = await fetch(buildRefreshRequestUrl(currentContainer), {
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
-                    'X-MailArchiver-Fragment': containerId
+                    'X-MailArchiver-Fragment': containerId,
+                    'Cache-Control': 'no-cache, no-store, max-age=0',
+                    'Pragma': 'no-cache'
                 },
-                cache: 'no-store'
+                cache: 'no-store',
+                credentials: 'same-origin'
             });
 
             if (!response.ok) {
