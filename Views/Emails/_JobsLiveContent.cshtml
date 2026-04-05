@@ -4,9 +4,6 @@
 <div id="jobsLiveContent"
          data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
          data-auto-refresh-enabled="true">
-        <div class="d-flex justify-content-end mb-2">
-            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
-        </div>
     @* Sync Jobs Section - Always at the top *@
     @if (ViewBag.SyncJobs != null)
     {

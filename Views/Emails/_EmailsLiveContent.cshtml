@@ -1,4 +1,4 @@
-@using MailArchiver.Models.ViewModels
+﻿@using MailArchiver.Models.ViewModels
 @inject Microsoft.Extensions.Localization.IStringLocalizer<MailArchiver.SharedResource> Localizer
 @model MailArchiver.Models.ViewModels.SearchViewModel
 @{
@@ -8,10 +8,6 @@
 <div id="emailsLiveContent"
          data-auto-refresh-url="@Context.Request.Path@Context.Request.QueryString"
          data-auto-refresh-enabled="true">
-        <div class="d-flex justify-content-end mb-2">
-            <small class="text-muted" data-auto-refresh-last-updated='@Localizer["LastUpdate"]'></small>
-        </div>
-
     @* Batch Operation Information *@
     @if (Model.ShowSelectionControls)
     {
@@ -278,7 +274,7 @@
                                             <td>
                                                 <a asp-action="Details" 
                                                 asp-route-id="@email.Id" 
-                                                asp-route-returnUrl="@($"{Context.Request.Path}{Context.Request.QueryString}")" 
+                                                asp-route-returnUrl="@Context.Request.GetDisplayUrl()" 
                                                 class="btn btn-sm btn-outline-primary">@Localizer["Details"]</a>
                                             </td>
                                         </tr>
@@ -330,7 +326,7 @@
                                     <div class="email-card-actions">
                                         <a asp-action="Details" 
                                         asp-route-id="@email.Id" 
-                                        asp-route-returnUrl="@($"{Context.Request.Path}{Context.Request.QueryString}")" 
+                                        asp-route-returnUrl="@Context.Request.GetDisplayUrl()" 
                                         class="btn btn-outline-primary btn-sm w-100">
                                             <i class="bi bi-eye"></i> @Localizer["Details"]
                                         </a>
