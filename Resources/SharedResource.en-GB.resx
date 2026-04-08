@@ -136,4 +136,10 @@
   <data name="NoFolders" xml:space="preserve">
     <value>No folders</value>
   </data>
+  <data name="ToggleFolderTree" xml:space="preserve">
+    <value>Click to expand/collapse folder tree</value>
+  </data>
+  <data name="NoFoldersAvailable" xml:space="preserve">
+    <value>No folders available</value>
+  </data>
 </root>

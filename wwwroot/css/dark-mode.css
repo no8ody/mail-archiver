@@ -1,4 +1,4 @@
-/* Dark Mode Variablen */
+﻿/* Dark Mode Variablen */
 :root[data-theme="dark"] {
   --primary-color: #3498db;
   --secondary-color: #7f8c8d;
@@ -504,6 +504,10 @@
   color: #e5e7eb;
 }
 
+[data-theme="dark"] .folder-tree-header:focus-visible {
+  outline-color: rgba(96, 165, 250, 0.6);
+}
+
 [data-theme="dark"] .folder-tree-content {
   background-color: #1f2937;
 }
@@ -547,6 +551,19 @@
 [data-theme="dark"] .folder-tree-item.selected .folder-tree-count {
   background-color: rgba(13, 110, 253, 0.28);
   color: #bfdbfe;
+}
+
+[data-theme="dark"] .folder-tree-collapse-toggle {
+  border-color: #4b5563;
+  color: #e5e7eb;
+  background-color: transparent;
+}
+
+[data-theme="dark"] .folder-tree-collapse-toggle:hover,
+[data-theme="dark"] .folder-tree-collapse-toggle:focus {
+  background-color: #374151;
+  border-color: #6b7280;
+  color: #f9fafb;
 }
 
 /* Dark Mode für Folder Tree Offcanvas (mobile) */

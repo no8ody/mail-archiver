@@ -1,4 +1,4 @@
-using MailArchiver.Data;
+﻿using MailArchiver.Data;
 using MailArchiver.Models;
 using MailArchiver.Services.Core;
 using MailArchiver.Services.Providers;
@@ -185,7 +185,7 @@ namespace MailArchiver.Services.Providers
                                 });
                             }
 
-                            _logger.LogWarning("Rate limit hit during folder {FolderName} for account {AccountName}. Sync will pause and checkpoints will be preserved.",
+                            _logger.LogWarning("Rate limit hit during folder {FolderName} for account {AccountName}. Stopping folder iteration to preserve bandwidth.",
                                 folder.FullName, account.Name);
                             break;
                         }
@@ -977,6 +977,35 @@ namespace MailArchiver.Services.Providers
 
                 // Check if this is a full sync or first sync (LastSync is Unix Epoch)
                 bool isFullSync = account.LastSync == new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+                if (_bandwidthOptions.Enabled)
+                {
+                    try
+                    {
+                        var checkpoints = await _bandwidthService.GetCheckpointsAsync(account.Id);
+                        var folderCheckpoint = checkpoints.FirstOrDefault(c => c.FolderName == folder.FullName);
+
+                        if (folderCheckpoint?.LastMessageDate.HasValue == true)
+                        {
+                            var checkpointDate = folderCheckpoint.LastMessageDate.Value;
+                            if (checkpointDate > lastSync)
+                            {
+                                _logger.LogInformation(
+                                    "Resuming folder {FolderName} from checkpoint date {CheckpointDate} (LastSync was {LastSync})",
+                                    folder.FullName,
+                                    checkpointDate,
+                                    lastSync);
+
+                                lastSync = checkpointDate;
+                                isFullSync = false;
+                            }
+                        }
+                    }
+                    catch (Exception cpEx)
+                    {
+                        _logger.LogWarning(cpEx, "Error reading checkpoints for folder {FolderName}, using LastSync", folder.FullName);
+                    }
+                }
 
                 // Subtract 12 hours from lastSync for the query, but only if it's not the Unix epoch (1/1/1970)
                 if (!isFullSync)

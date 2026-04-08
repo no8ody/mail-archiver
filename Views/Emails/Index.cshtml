@@ -1,4 +1,4 @@
-@using Microsoft.AspNetCore.Http.Extensions
+﻿@using Microsoft.AspNetCore.Http.Extensions
 @using MailArchiver.Services
 @using MailArchiver.Models.ViewModels
 @inject MailArchiver.Services.IAuthenticationService AuthService
@@ -244,6 +244,94 @@
                 });
             }
 
+            function initializeFolderTreePanel() {
+                const FOLDER_TREE_COLLAPSED_KEY = 'folderTreeCollapsed';
+                const folderTreePanel = document.getElementById('folderTreePanel');
+                const folderTreeHeader = document.getElementById('folderTreeHeader');
+                const folderTreeColumn = document.getElementById('folderTreeColumn');
+                const emailsResultsColumn = document.getElementById('emailsResultsColumn');
+                const folderTreeToggleBtn = document.getElementById('folderTreeToggleBtn');
+
+                function isFolderTreeCollapsed() {
+                    try {
+                        return localStorage.getItem(FOLDER_TREE_COLLAPSED_KEY) === 'true';
+                    } catch (e) {
+                        return false;
+                    }
+                }
+
+                function saveFolderTreeState(collapsed) {
+                    try {
+                        localStorage.setItem(FOLDER_TREE_COLLAPSED_KEY, collapsed.toString());
+                    } catch (e) {
+                    }
+                }
+
+                function updateFolderTreeState(collapsed) {
+                    if (folderTreePanel) {
+                        folderTreePanel.classList.toggle('collapsed', collapsed);
+                    }
+
+                    if (folderTreeColumn) {
+                        folderTreeColumn.classList.toggle('collapsed-col', collapsed);
+                    }
+
+                    if (emailsResultsColumn) {
+                        emailsResultsColumn.classList.toggle('expanded-col', collapsed);
+                    }
+
+                    if (folderTreeHeader) {
+                        folderTreeHeader.setAttribute('aria-expanded', (!collapsed).toString());
+                    }
+
+                    if (folderTreeToggleBtn) {
+                        folderTreeToggleBtn.style.display = collapsed ? 'inline-flex' : 'none';
+                        folderTreeToggleBtn.setAttribute('aria-expanded', (!collapsed).toString());
+                    }
+                }
+
+                function toggleFolderTree(forceCollapsed) {
+                    const collapsed = typeof forceCollapsed === 'boolean'
+                        ? forceCollapsed
+                        : !(folderTreePanel && folderTreePanel.classList.contains('collapsed'));
+
+                    updateFolderTreeState(collapsed);
+                    saveFolderTreeState(collapsed);
+                }
+
+                if (!folderTreePanel || !folderTreeColumn || !emailsResultsColumn) {
+                    if (folderTreeToggleBtn) {
+                        folderTreeToggleBtn.style.display = 'none';
+                    }
+                    return;
+                }
+
+                updateFolderTreeState(isFolderTreeCollapsed());
+
+                if (folderTreeHeader && folderTreeHeader.dataset.listenerInitialized !== 'true') {
+                    folderTreeHeader.dataset.listenerInitialized = 'true';
+
+                    folderTreeHeader.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        toggleFolderTree();
+                    });
+
+                    folderTreeHeader.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleFolderTree();
+                        }
+                    });
+                }
+
+                if (folderTreeToggleBtn && folderTreeToggleBtn.dataset.listenerInitialized !== 'true') {
+                    folderTreeToggleBtn.dataset.listenerInitialized = 'true';
+                    folderTreeToggleBtn.addEventListener('click', function() {
+                        toggleFolderTree(false);
+                    });
+                }
+            }
+
             function initializeFolderTreeHandlers() {
                 document.querySelectorAll('.folder-tree-item').forEach(function(item) {
                     if (item.dataset.listenerInitialized === 'true') {
@@ -285,6 +373,7 @@
                 });
             }
 
+            initializeFolderTreePanel();
             initializeFolderTreeHandlers();
 
             // Load folders dynamically when account selection changes

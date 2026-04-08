@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -2533,5 +2533,11 @@
   </data>
   <data name="SyncJobRateLimited" xml:space="preserve">
     <value>Synchronizacja wstrzymana z powodu limitu przepustowości. Będzie kontynuowana automatycznie.</value>
+  </data>
+  <data name="ToggleFolderTree" xml:space="preserve">
+    <value>Kliknij, aby rozwinąć/zwinąć drzewo folderów</value>
+  </data>
+  <data name="NoFoldersAvailable" xml:space="preserve">
+    <value>Brak dostępnych folderów</value>
   </data>
 </root>

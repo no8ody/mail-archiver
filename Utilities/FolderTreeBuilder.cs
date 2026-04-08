@@ -20,78 +20,60 @@ namespace MailArchiver.Utilities
                 .Take(maxTotalFolders)
                 .ToList();
 
-            var root = new Dictionary<string, FolderTreeNode>(StringComparer.OrdinalIgnoreCase);
+            var folderNameSet = new HashSet<string>(
+                validFolderData.Select(f => f.FolderName),
+                StringComparer.OrdinalIgnoreCase);
+
+            var allNodes = new Dictionary<string, FolderTreeNode>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var folder in validFolderData)
             {
-                var parts = folder.FolderName
-                    .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(p => p.Trim())
-                    .Where(p => !string.IsNullOrWhiteSpace(p))
-                    .ToArray();
-
-                if (parts.Length == 0)
-                    continue;
-
-                var currentLevel = root;
-                FolderTreeNode? currentNode = null;
-
-                for (int i = 0; i < parts.Length; i++)
+                allNodes[folder.FolderName] = new FolderTreeNode
                 {
-                    var part = parts[i];
-                    var fullPath = string.Join("/", parts.Take(i + 1));
-
-                    if (!currentLevel.TryGetValue(part, out var node))
-                    {
-                        node = new FolderTreeNode
-                        {
-                            Name = part,
-                            FullPath = fullPath,
-                            Level = i,
-                            TotalCount = 0,
-                            Children = new List<FolderTreeNode>()
-                        };
-                        currentLevel[part] = node;
-                    }
-
-                    currentNode = node;
-
-                    if (i < parts.Length - 1)
-                    {
-                        node.ChildrenMap ??= new Dictionary<string, FolderTreeNode>(StringComparer.OrdinalIgnoreCase);
-                        currentLevel = node.ChildrenMap;
-                    }
-                }
-
-                if (currentNode != null)
-                {
-                    currentNode.TotalCount = folder.Count;
-                }
+                    Name = folder.FolderName,
+                    FullPath = folder.FolderName,
+                    TotalCount = folder.Count,
+                    Level = 0,
+                    Children = new List<FolderTreeNode>()
+                };
             }
 
-            return Sort(BuildList(root));
-        }
+            var rootNodes = new List<FolderTreeNode>();
 
-        private static List<FolderTreeNode> BuildList(Dictionary<string, FolderTreeNode> nodes)
-        {
-            var result = new List<FolderTreeNode>();
-
-            foreach (var node in nodes.Values)
+            foreach (var folder in validFolderData.OrderBy(f => f.FolderName.Length).ThenBy(f => f.FolderName, StringComparer.OrdinalIgnoreCase))
             {
-                if (node.ChildrenMap != null && node.ChildrenMap.Any())
+                var node = allNodes[folder.FolderName];
+                string? parentPath = null;
+
+                for (int i = folder.FolderName.Length - 1; i >= 0; i--)
                 {
-                    node.Children = BuildList(node.ChildrenMap);
-                    node.ChildrenMap = null;
+                    if (folder.FolderName[i] != '/' && folder.FolderName[i] != '\\' && folder.FolderName[i] != '.')
+                    {
+                        continue;
+                    }
+
+                    var candidate = folder.FolderName.Substring(0, i);
+                    if (folderNameSet.Contains(candidate))
+                    {
+                        parentPath = candidate;
+                        break;
+                    }
+                }
+
+                if (parentPath != null && allNodes.TryGetValue(parentPath, out var parentNode))
+                {
+                    node.Name = folder.FolderName.Substring(parentPath.Length + 1);
+                    node.Level = parentNode.Level + 1;
+                    parentNode.Children.Add(node);
                 }
                 else
                 {
-                    node.Children = new List<FolderTreeNode>();
+                    node.Level = 0;
+                    rootNodes.Add(node);
                 }
-
-                result.Add(node);
             }
 
-            return result;
+            return Sort(rootNodes);
         }
 
         private static List<FolderTreeNode> Sort(List<FolderTreeNode> nodes)
@@ -126,11 +108,15 @@ namespace MailArchiver.Utilities
                     if (priorityFolders.TryGetValue(lowerName, out var priority))
                         return priority;
 
+                    var lowerPath = n.FullPath.ToLowerInvariant();
                     foreach (var pf in priorityFolders)
                     {
-                        if (n.FullPath.ToLowerInvariant().StartsWith(pf.Key + "/") ||
-                            n.FullPath.Equals(pf.Key, StringComparison.OrdinalIgnoreCase))
+                        if (lowerPath.StartsWith(pf.Key + "/") ||
+                            lowerPath.StartsWith(pf.Key + ".") ||
+                            lowerPath.Equals(pf.Key, StringComparison.OrdinalIgnoreCase))
+                        {
                             return pf.Value;
+                        }
                     }
 
                     return 100;
