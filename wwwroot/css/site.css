@@ -772,6 +772,10 @@ body {
 }
 
 /* Folder Tree Panel Styles */
+.folder-tree-unavailable {
+  display: none !important;
+}
+
 .folder-tree-panel {
   background-color: #fff;
   border: 1px solid #dee2e6;

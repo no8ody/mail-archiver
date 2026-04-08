@@ -15,12 +15,9 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="h3">@Localizer["EmailArchive"]</h1>
-        @if (Model.SelectedAccountId.HasValue)
-        {
-            <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
-                <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
-            </button>
-        }
+        <button type="button" id="folderTreeMobileToggle" class="btn btn-outline-secondary folder-tree-mobile-toggle @(Model.SelectedAccountId.HasValue ? "" : "folder-tree-unavailable")" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
+            <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
+        </button>
     </div>
 
     @* Active Jobs Alert *@
@@ -193,32 +190,19 @@
     </div>
 </div>
 
-@if (Model.SelectedAccountId.HasValue)
-{
-    <div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
-        <div class="offcanvas-header">
-            <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
-                <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
-            </h5>
-            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-        </div>
-        <div class="offcanvas-body p-0">
-            <div class="folder-tree-content" id="folderTreeContentMobile">
-                @if (folderTree.Any())
-                {
-                    @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
-                }
-                else
-                {
-                    <div class="folder-tree-empty">
-                        <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                        <span class="text-muted">@Localizer["NoFolders"]</span>
-                    </div>
-                }
-            </div>
+<div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
+            <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body p-0">
+        <div class="folder-tree-content" id="folderTreeContentMobile">
+            @await Html.PartialAsync("_FolderTreeContent", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
         </div>
     </div>
-}
+</div>
     </div>
 
 @section Scripts {
@@ -244,13 +228,75 @@
                 });
             }
 
+            const folderTreeColumn = document.getElementById('folderTreeColumn');
+            const folderTreePanel = document.getElementById('folderTreePanel');
+            const folderTreeHeader = document.getElementById('folderTreeHeader');
+            const folderTreeToggleBtn = document.getElementById('folderTreeToggleBtn');
+            const folderTreeMobileToggle = document.getElementById('folderTreeMobileToggle');
+            const folderTreeContent = document.getElementById('folderTreeContent');
+            const folderTreeContentMobile = document.getElementById('folderTreeContentMobile');
+            const emailsResultsColumn = document.getElementById('emailsResultsColumn');
+
+            function setFolderTreeAvailability(isAvailable) {
+                if (folderTreeColumn) {
+                    folderTreeColumn.classList.toggle('folder-tree-unavailable', !isAvailable);
+                    folderTreeColumn.dataset.accountSelected = isAvailable ? 'true' : 'false';
+                    if (!isAvailable) {
+                        folderTreeColumn.classList.remove('collapsed-col');
+                    }
+                }
+
+                if (folderTreeMobileToggle) {
+                    folderTreeMobileToggle.classList.toggle('folder-tree-unavailable', !isAvailable);
+                }
+
+                if (folderTreeToggleBtn) {
+                    folderTreeToggleBtn.classList.toggle('folder-tree-unavailable', !isAvailable);
+                    if (!isAvailable) {
+                        folderTreeToggleBtn.style.display = 'none';
+                    }
+                }
+
+                if (emailsResultsColumn) {
+                    emailsResultsColumn.classList.toggle('has-folder-tree', isAvailable);
+                    emailsResultsColumn.classList.toggle('col-lg-10', isAvailable);
+                    if (!isAvailable) {
+                        emailsResultsColumn.classList.remove('expanded-col');
+                    }
+                }
+            }
+
+            function loadFolderTree(accountId, selectedFolder) {
+                if (!accountId || !folderTreeContent || !folderTreeContentMobile) {
+                    setFolderTreeAvailability(false);
+                    initializeFolderTreePanel();
+                    return Promise.resolve();
+                }
+
+                return fetch('@Url.Action("GetFolderTree", "Emails")?accountId=' + encodeURIComponent(accountId) + '&selectedFolder=' + encodeURIComponent(selectedFolder || ''))
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to load folder tree');
+                        }
+
+                        return response.text();
+                    })
+                    .then(html => {
+                        folderTreeContent.innerHTML = html;
+                        folderTreeContentMobile.innerHTML = html;
+                        setFolderTreeAvailability(true);
+                        initializeFolderTreeHandlers();
+                        initializeFolderTreePanel();
+                    })
+                    .catch(error => {
+                        console.error('Error loading folder tree:', error);
+                        setFolderTreeAvailability(true);
+                        initializeFolderTreePanel();
+                    });
+            }
+
             function initializeFolderTreePanel() {
                 const FOLDER_TREE_COLLAPSED_KEY = 'folderTreeCollapsed';
-                const folderTreePanel = document.getElementById('folderTreePanel');
-                const folderTreeHeader = document.getElementById('folderTreeHeader');
-                const folderTreeColumn = document.getElementById('folderTreeColumn');
-                const emailsResultsColumn = document.getElementById('emailsResultsColumn');
-                const folderTreeToggleBtn = document.getElementById('folderTreeToggleBtn');
 
                 function isFolderTreeCollapsed() {
                     try {
@@ -302,6 +348,21 @@
                 if (!folderTreePanel || !folderTreeColumn || !emailsResultsColumn) {
                     if (folderTreeToggleBtn) {
                         folderTreeToggleBtn.style.display = 'none';
+                    }
+                    return;
+                }
+
+                const isAvailable = folderTreeColumn.dataset.accountSelected === 'true' && !folderTreeColumn.classList.contains('folder-tree-unavailable');
+                if (!isAvailable) {
+                    folderTreePanel.classList.remove('collapsed');
+                    folderTreeColumn.classList.remove('collapsed-col');
+                    emailsResultsColumn.classList.remove('expanded-col');
+                    if (folderTreeHeader) {
+                        folderTreeHeader.setAttribute('aria-expanded', 'false');
+                    }
+                    if (folderTreeToggleBtn) {
+                        folderTreeToggleBtn.style.display = 'none';
+                        folderTreeToggleBtn.setAttribute('aria-expanded', 'false');
                     }
                     return;
                 }
@@ -388,9 +449,11 @@
                 if (currentAccountId && currentAccountId !== '') {
                     // Account is already selected, ensure proper classes
                     directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
+                    setFolderTreeAvailability(true);
                 } else {
                     // No account selected, make direction field wider
                     directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
+                    setFolderTreeAvailability(false);
                 }
                 
                 if (accountSelect.dataset.listenerInitialized !== 'true') {
@@ -403,6 +466,8 @@
                         // Hide folder dropdown if no account selected
                         folderContainer.style.display = 'none';
                         folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
+                        setFolderTreeAvailability(false);
+                        initializeFolderTreePanel();
                         
                         // Make direction field wider
                         directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
@@ -427,6 +492,8 @@
                                 // Show folder container and make direction field narrower
                                 folderContainer.style.display = '';
                                 directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
+
+                                return loadFolderTree(accountId, folderSelect.value || '');
                             })
                             .catch(error => {
                                 console.error('Error loading folders:', error);
@@ -434,6 +501,8 @@
                                 folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
                                 folderContainer.style.display = '';
                                 directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
+
+                                return loadFolderTree(accountId, '');
                             });
                     }
                     });
