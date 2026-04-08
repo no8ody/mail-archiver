@@ -153,76 +153,88 @@
                                                 </div>
                                             </th>
                                         }
-                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                            SearchTerm = Model.SearchTerm,
-                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                            SelectedAccountId = Model.SelectedAccountId,
-                                            SelectedFolder = Model.SelectedFolder,
-                                            IsOutgoing = Model.IsOutgoing,
-                                            PageNumber = 1,
-                                            PageSize = Model.PageSize,
-                                            DisableSelectionMode = Model.DisableSelectionMode,
-                                            SortBy = "Subject",
-                                            SortOrder = (Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                        })'">
+                                        <th class="email-search-sort-trigger" role="button" tabindex="0" style="cursor: pointer;"
+                                            data-email-search-url="@Url.Action("Index", new {
+                                                SearchTerm = Model.SearchTerm,
+                                                FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                                ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                                SelectedAccountId = Model.SelectedAccountId,
+                                                SelectedFolder = Model.SelectedFolder,
+                                                IsOutgoing = Model.IsOutgoing,
+                                                PageNumber = 1,
+                                                PageSize = Model.PageSize,
+                                                DisableSelectionMode = Model.DisableSelectionMode,
+                                                SortBy = "Subject",
+                                                SortOrder = (Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                            })"
+                                            data-sort-by="Subject"
+                                            data-sort-order="@((Model.SortBy == "Subject" && Model.SortOrder == "asc") ? "desc" : "asc")">
                                             @Localizer["Subject"]
                                             @if (Model.SortBy == "Subject")
                                             {
                                                 <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
                                             }
                                         </th>
-                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                            SearchTerm = Model.SearchTerm,
-                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                            SelectedAccountId = Model.SelectedAccountId,
-                                            SelectedFolder = Model.SelectedFolder,
-                                            IsOutgoing = Model.IsOutgoing,
-                                            PageNumber = 1,
-                                            PageSize = Model.PageSize,
-                                            DisableSelectionMode = Model.DisableSelectionMode,
-                                            SortBy = "From",
-                                            SortOrder = (Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                        })'">
+                                        <th class="email-search-sort-trigger" role="button" tabindex="0" style="cursor: pointer;"
+                                            data-email-search-url="@Url.Action("Index", new {
+                                                SearchTerm = Model.SearchTerm,
+                                                FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                                ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                                SelectedAccountId = Model.SelectedAccountId,
+                                                SelectedFolder = Model.SelectedFolder,
+                                                IsOutgoing = Model.IsOutgoing,
+                                                PageNumber = 1,
+                                                PageSize = Model.PageSize,
+                                                DisableSelectionMode = Model.DisableSelectionMode,
+                                                SortBy = "From",
+                                                SortOrder = (Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                            })"
+                                            data-sort-by="From"
+                                            data-sort-order="@((Model.SortBy == "From" && Model.SortOrder == "asc") ? "desc" : "asc")">
                                             @Localizer["From"]
                                             @if (Model.SortBy == "From")
                                             {
                                                 <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
                                             }
                                         </th>
-                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                            SearchTerm = Model.SearchTerm,
-                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                            SelectedAccountId = Model.SelectedAccountId,
-                                            SelectedFolder = Model.SelectedFolder,
-                                            IsOutgoing = Model.IsOutgoing,
-                                            PageNumber = 1,
-                                            PageSize = Model.PageSize,
-                                            DisableSelectionMode = Model.DisableSelectionMode,
-                                            SortBy = "To",
-                                            SortOrder = (Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                        })'">
+                                        <th class="email-search-sort-trigger" role="button" tabindex="0" style="cursor: pointer;"
+                                            data-email-search-url="@Url.Action("Index", new {
+                                                SearchTerm = Model.SearchTerm,
+                                                FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                                ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                                SelectedAccountId = Model.SelectedAccountId,
+                                                SelectedFolder = Model.SelectedFolder,
+                                                IsOutgoing = Model.IsOutgoing,
+                                                PageNumber = 1,
+                                                PageSize = Model.PageSize,
+                                                DisableSelectionMode = Model.DisableSelectionMode,
+                                                SortBy = "To",
+                                                SortOrder = (Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                            })"
+                                            data-sort-by="To"
+                                            data-sort-order="@((Model.SortBy == "To" && Model.SortOrder == "asc") ? "desc" : "asc")">
                                             @Localizer["To"]
                                             @if (Model.SortBy == "To")
                                             {
                                                 <i class="bi bi-@(Model.SortOrder == "asc" ? "arrow-up" : "arrow-down")"></i>
                                             }
                                         </th>
-                                        <th style="cursor: pointer;" onclick="window.location.href='@Url.Action("Index", new {
-                                            SearchTerm = Model.SearchTerm,
-                                            FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
-                                            ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
-                                            SelectedAccountId = Model.SelectedAccountId,
-                                            SelectedFolder = Model.SelectedFolder,
-                                            IsOutgoing = Model.IsOutgoing,
-                                            PageNumber = 1,
-                                            PageSize = Model.PageSize,
-                                            DisableSelectionMode = Model.DisableSelectionMode,
-                                            SortBy = "SentDate",
-                                            SortOrder = (Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc"
-                                        })'">
+                                        <th class="email-search-sort-trigger" role="button" tabindex="0" style="cursor: pointer;"
+                                            data-email-search-url="@Url.Action("Index", new {
+                                                SearchTerm = Model.SearchTerm,
+                                                FromDate = Model.FromDate?.ToString("yyyy-MM-dd"),
+                                                ToDate = Model.ToDate?.ToString("yyyy-MM-dd"),
+                                                SelectedAccountId = Model.SelectedAccountId,
+                                                SelectedFolder = Model.SelectedFolder,
+                                                IsOutgoing = Model.IsOutgoing,
+                                                PageNumber = 1,
+                                                PageSize = Model.PageSize,
+                                                DisableSelectionMode = Model.DisableSelectionMode,
+                                                SortBy = "SentDate",
+                                                SortOrder = (Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc"
+                                            })"
+                                            data-sort-by="SentDate"
+                                            data-sort-order="@((Model.SortBy == "SentDate" && Model.SortOrder == "asc") ? "desc" : "asc")">
                                             @Localizer["Date"]
                                             @if (Model.SortBy == "SentDate")
                                             {

@@ -101,6 +101,9 @@
                                     <label class="form-check-label small" for="disableSelectionModeToggle">@Localizer["Disable"] @Localizer["SelectionMode"]</label>
                                     <input type="hidden" id="userTimezone" name="UserTimezone" value="" />
                                     <input type="hidden" id="pageSizeHidden" name="PageSize" value="@Model.PageSize" />
+                                    <input type="hidden" id="pageNumberHidden" name="PageNumber" value="@Model.PageNumber" />
+                                    <input type="hidden" id="sortByHidden" name="SortBy" value="@Model.SortBy" />
+                                    <input type="hidden" id="sortOrderHidden" name="SortOrder" value="@Model.SortOrder" />
                                 </div>
                             </div>
                         </div>
@@ -215,19 +218,13 @@
                 timezoneInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
             }
 
-            // Auto-submit form when page size changes
-            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            const searchForm = document.getElementById('searchForm');
+            const accountSelect = document.getElementById('accountSelect');
+            const disableSelectionModeToggle = document.getElementById('disableSelectionModeToggle');
             const pageSizeHidden = document.getElementById('pageSizeHidden');
-            if (pageSizeSelect && pageSizeHidden && pageSizeSelect.dataset.listenerInitialized !== 'true') {
-                pageSizeSelect.dataset.listenerInitialized = 'true';
-                pageSizeSelect.addEventListener('change', function() {
-                    console.log("Page size changed to:", this.value);
-                    // Sync hidden field
-                    pageSizeHidden.value = this.value;
-                    searchForm.submit();
-                });
-            }
-
+            const pageNumberHidden = document.getElementById('pageNumberHidden');
+            const sortByHidden = document.getElementById('sortByHidden');
+            const sortOrderHidden = document.getElementById('sortOrderHidden');
             const folderTreeColumn = document.getElementById('folderTreeColumn');
             const folderTreePanel = document.getElementById('folderTreePanel');
             const folderTreeHeader = document.getElementById('folderTreeHeader');
@@ -236,6 +233,8 @@
             const folderTreeContent = document.getElementById('folderTreeContent');
             const folderTreeContentMobile = document.getElementById('folderTreeContentMobile');
             const emailsResultsColumn = document.getElementById('emailsResultsColumn');
+            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            let isEmailsIndexRefreshInFlight = false;
 
             function setFolderTreeAvailability(isAvailable) {
                 if (folderTreeColumn) {
@@ -264,35 +263,6 @@
                         emailsResultsColumn.classList.remove('expanded-col');
                     }
                 }
-            }
-
-            function loadFolderTree(accountId, selectedFolder) {
-                if (!accountId || !folderTreeContent || !folderTreeContentMobile) {
-                    setFolderTreeAvailability(false);
-                    initializeFolderTreePanel();
-                    return Promise.resolve();
-                }
-
-                return fetch('@Url.Action("GetFolderTree", "Emails")?accountId=' + encodeURIComponent(accountId) + '&selectedFolder=' + encodeURIComponent(selectedFolder || ''))
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error('Failed to load folder tree');
-                        }
-
-                        return response.text();
-                    })
-                    .then(html => {
-                        folderTreeContent.innerHTML = html;
-                        folderTreeContentMobile.innerHTML = html;
-                        setFolderTreeAvailability(true);
-                        initializeFolderTreeHandlers();
-                        initializeFolderTreePanel();
-                    })
-                    .catch(error => {
-                        console.error('Error loading folder tree:', error);
-                        setFolderTreeAvailability(true);
-                        initializeFolderTreePanel();
-                    });
             }
 
             function initializeFolderTreePanel() {
@@ -393,13 +363,151 @@
                 }
             }
 
+            function setHiddenSearchState(name, value) {
+                const fieldMap = {
+                    PageSize: pageSizeHidden,
+                    PageNumber: pageNumberHidden,
+                    SortBy: sortByHidden,
+                    SortOrder: sortOrderHidden
+                };
+
+                const field = fieldMap[name];
+                if (field) {
+                    field.value = value || '';
+                }
+            }
+
+            function updateSelectFromResponse(currentSelect, replacementSelect) {
+                if (!currentSelect || !replacementSelect) {
+                    return;
+                }
+
+                currentSelect.innerHTML = replacementSelect.innerHTML;
+                currentSelect.value = replacementSelect.value;
+            }
+
+            function replaceElementFromResponse(elementId, parsedDocument) {
+                const currentElement = document.getElementById(elementId);
+                const replacementElement = parsedDocument.getElementById(elementId);
+                if (currentElement && replacementElement) {
+                    currentElement.replaceWith(replacementElement);
+                }
+            }
+
+            function syncSearchUiFromResponse(parsedDocument) {
+                const replacementForm = parsedDocument.getElementById('searchForm');
+                if (searchForm && replacementForm) {
+                    ['SearchTerm', 'FromDate', 'ToDate', 'UserTimezone', 'PageSize', 'PageNumber', 'SortBy', 'SortOrder'].forEach(function(fieldName) {
+                        const currentField = searchForm.elements[fieldName];
+                        const replacementField = replacementForm.elements[fieldName];
+
+                        if (!currentField || !replacementField) {
+                            return;
+                        }
+
+                        if (currentField.type === 'checkbox') {
+                            currentField.checked = replacementField.checked;
+                        } else {
+                            currentField.value = replacementField.value;
+                        }
+                    });
+
+                    const replacementDisableSelectionMode = replacementForm.elements['DisableSelectionMode'];
+                    if (disableSelectionModeToggle && replacementDisableSelectionMode) {
+                        disableSelectionModeToggle.checked = replacementDisableSelectionMode.checked;
+                    }
+
+                    updateSelectFromResponse(accountSelect, replacementForm.querySelector('#accountSelect'));
+                }
+
+                replaceElementFromResponse('folderFilterContainer', parsedDocument);
+                replaceElementFromResponse('directionFilterContainer', parsedDocument);
+                replaceElementFromResponse('folderTreeMobileToggle', parsedDocument);
+
+                const currentFolderTreeMobileContent = document.getElementById('folderTreeContentMobile');
+                const replacementFolderTreeMobileContent = parsedDocument.getElementById('folderTreeContentMobile');
+                if (currentFolderTreeMobileContent && replacementFolderTreeMobileContent) {
+                    currentFolderTreeMobileContent.innerHTML = replacementFolderTreeMobileContent.innerHTML;
+                }
+            }
+
+            async function refreshEmailsIndex(url, options) {
+                const normalizedOptions = Object.assign({ pushState: true, replaceState: false }, options || {});
+                const targetUrl = url instanceof URL ? url : new URL(url, window.location.origin);
+
+                if (isEmailsIndexRefreshInFlight) {
+                    return false;
+                }
+
+                isEmailsIndexRefreshInFlight = true;
+
+                try {
+                    const response = await fetch(targetUrl.toString(), {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-MailArchiver-Fragment': 'emailsLiveContent',
+                            'Cache-Control': 'no-cache, no-store, max-age=0',
+                            'Pragma': 'no-cache'
+                        },
+                        cache: 'no-store',
+                        credentials: 'same-origin'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to refresh emails index');
+                    }
+
+                    const html = await response.text();
+                    const parsedDocument = new DOMParser().parseFromString(html, 'text/html');
+                    const replacementLiveContent = parsedDocument.getElementById('emailsLiveContent');
+                    const currentLiveContent = document.getElementById('emailsLiveContent');
+
+                    if (!replacementLiveContent || !currentLiveContent) {
+                        throw new Error('Could not find refreshed email results content');
+                    }
+
+                    syncSearchUiFromResponse(parsedDocument);
+                    currentLiveContent.replaceWith(replacementLiveContent);
+
+                    if (window.mailArchiver && typeof window.mailArchiver.initializeDynamicUi === 'function') {
+                        window.mailArchiver.initializeDynamicUi(replacementLiveContent);
+                    }
+
+                    if (window.mailArchiver && typeof window.mailArchiver.initializeAutoRefresh === 'function') {
+                        window.mailArchiver.initializeAutoRefresh(replacementLiveContent);
+                    }
+
+                    if (normalizedOptions.pushState) {
+                        window.history.pushState({ emailsIndexUrl: targetUrl.toString() }, '', targetUrl.toString());
+                    } else if (normalizedOptions.replaceState) {
+                        window.history.replaceState({ emailsIndexUrl: targetUrl.toString() }, '', targetUrl.toString());
+                    }
+
+                    document.dispatchEvent(new CustomEvent('mailarchiver:fragment-refreshed', {
+                        detail: {
+                            containerId: 'emailsLiveContent',
+                            element: replacementLiveContent,
+                            manual: true
+                        }
+                    }));
+
+                    return true;
+                } catch (error) {
+                    console.error('Error refreshing emails index:', error);
+                    window.location.href = targetUrl.toString();
+                    return false;
+                } finally {
+                    isEmailsIndexRefreshInFlight = false;
+                }
+            }
+
             function applyCurrentSearchFormState(url) {
                 if (!searchForm) {
                     return url;
                 }
 
                 const formData = new FormData(searchForm);
-                const scalarFields = ['SearchTerm', 'FromDate', 'ToDate', 'SelectedAccountId', 'SelectedFolder', 'IsOutgoing', 'UserTimezone', 'PageSize'];
+                const scalarFields = ['SearchTerm', 'FromDate', 'ToDate', 'SelectedAccountId', 'SelectedFolder', 'IsOutgoing', 'UserTimezone', 'PageSize', 'PageNumber', 'SortBy', 'SortOrder'];
 
                 scalarFields.forEach(function(fieldName) {
                     const value = formData.get(fieldName);
@@ -419,6 +527,26 @@
                 return url;
             }
 
+            function buildSearchUrl(overrides) {
+                const targetUrl = applyCurrentSearchFormState(new URL('@Url.Action("Index", "Emails")', window.location.origin));
+                const effectiveOverrides = overrides || {};
+
+                Object.entries(effectiveOverrides).forEach(function(entry) {
+                    const key = entry[0];
+                    const value = entry[1];
+
+                    if (value === null || value === undefined || value === '') {
+                        targetUrl.searchParams.delete(key);
+                    } else {
+                        targetUrl.searchParams.set(key, value);
+                    }
+
+                    setHiddenSearchState(key, value);
+                });
+
+                return targetUrl;
+            }
+
             function initializeFolderTreeHandlers() {
                 document.querySelectorAll('.folder-tree-item').forEach(function(item) {
                     if (item.dataset.listenerInitialized === 'true') {
@@ -432,20 +560,18 @@
                         }
 
                         const folder = this.dataset.folder;
-                        if (!folder) return;
-
-                        const url = applyCurrentSearchFormState(new URL(window.location.href));
-                        const currentAccountId = accountSelect ? accountSelect.value : '';
-
-                        if (currentAccountId) {
-                            url.searchParams.set('SelectedAccountId', currentAccountId);
-                        } else {
-                            url.searchParams.delete('SelectedAccountId');
+                        if (!folder) {
+                            return;
                         }
 
-                        url.searchParams.set('SelectedFolder', folder);
-                        url.searchParams.set('PageNumber', '1');
-                        window.location.href = url.toString();
+                        const currentAccountId = accountSelect ? accountSelect.value : '';
+                        const targetUrl = buildSearchUrl({
+                            SelectedAccountId: currentAccountId || '',
+                            SelectedFolder: folder,
+                            PageNumber: '1'
+                        });
+
+                        refreshEmailsIndex(targetUrl);
                     });
                 });
 
@@ -468,80 +594,134 @@
                 });
             }
 
-            initializeFolderTreePanel();
-            initializeFolderTreeHandlers();
+            function initializeFolderAndDirectionFiltering() {
+                const currentAccountSelect = document.getElementById('accountSelect');
+                const currentFolderContainer = document.getElementById('folderFilterContainer');
+                const currentFolderSelect = document.getElementById('folderSelect');
+                const currentDirectionContainer = document.getElementById('directionFilterContainer');
 
-            // Load folders dynamically when account selection changes
-            const accountSelect = document.getElementById('accountSelect');
-            const folderContainer = document.getElementById('folderFilterContainer');
-            const folderSelect = document.getElementById('folderSelect');
-            const directionContainer = document.getElementById('directionFilterContainer');
-            
-            if (accountSelect && folderContainer && folderSelect && directionContainer) {
-                // Initialize on page load
-                const currentAccountId = accountSelect.value;
-                if (currentAccountId && currentAccountId !== '') {
-                    // Account is already selected, ensure proper classes
-                    directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
-                    setFolderTreeAvailability(true);
-                } else {
-                    // No account selected, make direction field wider
-                    directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
-                    setFolderTreeAvailability(false);
-                }
-                
-                if (accountSelect.dataset.listenerInitialized !== 'true') {
-                    accountSelect.dataset.listenerInitialized = 'true';
-                    accountSelect.addEventListener('change', function() {
-                    const accountId = this.value;
-                    console.log("Account selection changed to:", accountId);
-                    
-                    if (!accountId || accountId === '') {
-                        // Hide folder dropdown if no account selected
-                        folderContainer.style.display = 'none';
-                        folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
-                        setFolderTreeAvailability(false);
-                        initializeFolderTreePanel();
-                        
-                        // Make direction field wider
-                        directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
+                if (currentAccountSelect && currentFolderContainer && currentFolderSelect && currentDirectionContainer) {
+                    const currentAccountId = currentAccountSelect.value;
+                    if (currentAccountId && currentAccountId !== '') {
+                        currentDirectionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
+                        setFolderTreeAvailability(true);
                     } else {
-                        // Load folders for selected account via AJAX
-                        fetch('@Url.Action("GetFolders", "Emails")?accountId=' + accountId)
-                            .then(response => response.json())
-                            .then(folders => {
-                                console.log("Loaded folders:", folders);
-                                
-                                // Clear existing options
-                                folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
-                                
-                                // Add folder options
-                                folders.forEach(function(folder) {
-                                    const option = document.createElement('option');
-                                    option.value = folder;
-                                    option.textContent = folder;
-                                    folderSelect.appendChild(option);
-                                });
-                                
-                                // Show folder container and make direction field narrower
-                                folderContainer.style.display = '';
-                                directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
-
-                                return loadFolderTree(accountId, folderSelect.value || '');
-                            })
-                            .catch(error => {
-                                console.error('Error loading folders:', error);
-                                // Show container anyway with just "All Folders"
-                                folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
-                                folderContainer.style.display = '';
-                                directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
-
-                                return loadFolderTree(accountId, '');
-                            });
+                        currentDirectionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
+                        setFolderTreeAvailability(false);
                     }
+
+                    if (currentAccountSelect.dataset.listenerInitialized !== 'true') {
+                        currentAccountSelect.dataset.listenerInitialized = 'true';
+                        currentAccountSelect.addEventListener('change', function() {
+                            if (currentFolderSelect) {
+                                currentFolderSelect.value = '';
+                            }
+
+                            const targetUrl = buildSearchUrl({
+                                SelectedAccountId: this.value || '',
+                                SelectedFolder: '',
+                                PageNumber: '1'
+                            });
+
+                            refreshEmailsIndex(targetUrl);
+                        });
+                    }
+
+                    if (currentFolderSelect.dataset.listenerInitialized !== 'true') {
+                        currentFolderSelect.dataset.listenerInitialized = 'true';
+                        currentFolderSelect.addEventListener('change', function() {
+                            const targetUrl = buildSearchUrl({
+                                SelectedFolder: this.value || '',
+                                PageNumber: '1'
+                            });
+
+                            refreshEmailsIndex(targetUrl);
+                        });
+                    }
+                }
+            }
+
+            function initializeSearchNavigation() {
+                const currentPageSizeSelect = document.getElementById('pageSizeSelect');
+                if (currentPageSizeSelect && pageSizeHidden && currentPageSizeSelect.dataset.listenerInitialized !== 'true') {
+                    currentPageSizeSelect.dataset.listenerInitialized = 'true';
+                    currentPageSizeSelect.addEventListener('change', function() {
+                        const targetUrl = buildSearchUrl({
+                            PageSize: this.value,
+                            PageNumber: '1'
+                        });
+
+                        refreshEmailsIndex(targetUrl);
+                    });
+                }
+
+                if (searchForm && searchForm.dataset.listenerInitialized !== 'true') {
+                    searchForm.dataset.listenerInitialized = 'true';
+                    searchForm.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const targetUrl = buildSearchUrl({ PageNumber: pageNumberHidden ? pageNumberHidden.value || '1' : '1' });
+                        refreshEmailsIndex(targetUrl);
+                    });
+                }
+
+                if (disableSelectionModeToggle && disableSelectionModeToggle.dataset.listenerInitialized !== 'true') {
+                    disableSelectionModeToggle.dataset.listenerInitialized = 'true';
+                    disableSelectionModeToggle.addEventListener('change', function() {
+                        clearStoredSelections();
+                        const targetUrl = buildSearchUrl({ PageNumber: '1' });
+                        refreshEmailsIndex(targetUrl);
+                    });
+                }
+
+                if (document.body.dataset.emailsIndexNavigationInitialized !== 'true') {
+                    document.body.dataset.emailsIndexNavigationInitialized = 'true';
+
+                    document.addEventListener('click', function(event) {
+                        const paginationLink = event.target.closest('#emailsLiveContent .page-link[href]');
+                        if (paginationLink) {
+                            event.preventDefault();
+                            refreshEmailsIndex(new URL(paginationLink.href, window.location.origin));
+                            return;
+                        }
+
+                        const sortTrigger = event.target.closest('#emailsLiveContent .email-search-sort-trigger[data-email-search-url]');
+                        if (sortTrigger) {
+                            event.preventDefault();
+                            const sortBy = sortTrigger.dataset.sortBy || '';
+                            const sortOrder = sortTrigger.dataset.sortOrder || '';
+                            if (sortBy) {
+                                setHiddenSearchState('SortBy', sortBy);
+                            }
+                            if (sortOrder) {
+                                setHiddenSearchState('SortOrder', sortOrder);
+                            }
+                            setHiddenSearchState('PageNumber', '1');
+                            refreshEmailsIndex(new URL(sortTrigger.dataset.emailSearchUrl, window.location.origin));
+                        }
+                    });
+
+                    document.addEventListener('keydown', function(event) {
+                        const sortTrigger = event.target.closest('#emailsLiveContent .email-search-sort-trigger[data-email-search-url]');
+                        if (!sortTrigger) {
+                            return;
+                        }
+
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            sortTrigger.click();
+                        }
+                    });
+
+                    window.addEventListener('popstate', function() {
+                        refreshEmailsIndex(new URL(window.location.href), { pushState: false, replaceState: true });
                     });
                 }
             }
+
+            initializeFolderTreePanel();
+            initializeFolderTreeHandlers();
+            initializeFolderAndDirectionFiltering();
+            initializeSearchNavigation();
 
             // Configuration from ViewBag
             const asyncThreshold = @ViewBag.AsyncThreshold;
@@ -552,8 +732,6 @@
             const STORAGE_KEY = 'emailSelection';
             
             // Get elements
-            const disableSelectionModeToggle = document.getElementById('disableSelectionModeToggle');
-            const searchForm = document.getElementById('searchForm');
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
             const selectAllBtn = document.getElementById('selectAllBtn');
             const deselectAllBtn = document.getElementById('deselectAllBtn');
@@ -629,16 +807,6 @@
                         selectAllBtn.className = 'btn btn-sm btn-outline-primary';
                     }
                 }
-            }
-
-            // Toggle selection mode using form submit
-            if (disableSelectionModeToggle && disableSelectionModeToggle.dataset.listenerInitialized !== 'true') {
-                disableSelectionModeToggle.dataset.listenerInitialized = 'true';
-                disableSelectionModeToggle.addEventListener('change', function() {
-                    console.log("Selection mode disabled: " + this.checked);
-                    clearStoredSelections();
-                    searchForm.submit();
-                });
             }
 
             // Update selection counter and mode indicator
