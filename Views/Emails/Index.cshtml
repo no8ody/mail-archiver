@@ -393,6 +393,32 @@
                 }
             }
 
+            function applyCurrentSearchFormState(url) {
+                if (!searchForm) {
+                    return url;
+                }
+
+                const formData = new FormData(searchForm);
+                const scalarFields = ['SearchTerm', 'FromDate', 'ToDate', 'SelectedAccountId', 'SelectedFolder', 'IsOutgoing', 'UserTimezone', 'PageSize'];
+
+                scalarFields.forEach(function(fieldName) {
+                    const value = formData.get(fieldName);
+                    if (typeof value === 'string' && value !== '') {
+                        url.searchParams.set(fieldName, value);
+                    } else {
+                        url.searchParams.delete(fieldName);
+                    }
+                });
+
+                if (formData.get('DisableSelectionMode') === 'true') {
+                    url.searchParams.set('DisableSelectionMode', 'true');
+                } else {
+                    url.searchParams.delete('DisableSelectionMode');
+                }
+
+                return url;
+            }
+
             function initializeFolderTreeHandlers() {
                 document.querySelectorAll('.folder-tree-item').forEach(function(item) {
                     if (item.dataset.listenerInitialized === 'true') {
@@ -408,7 +434,15 @@
                         const folder = this.dataset.folder;
                         if (!folder) return;
 
-                        const url = new URL(window.location.href);
+                        const url = applyCurrentSearchFormState(new URL(window.location.href));
+                        const currentAccountId = accountSelect ? accountSelect.value : '';
+
+                        if (currentAccountId) {
+                            url.searchParams.set('SelectedAccountId', currentAccountId);
+                        } else {
+                            url.searchParams.delete('SelectedAccountId');
+                        }
+
                         url.searchParams.set('SelectedFolder', folder);
                         url.searchParams.set('PageNumber', '1');
                         window.location.href = url.toString();
