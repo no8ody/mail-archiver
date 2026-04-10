@@ -1,0 +1,15 @@
+@using MailArchiver.Models.ViewModels
+@inject Microsoft.Extensions.Localization.IStringLocalizer<MailArchiver.SharedResource> Localizer
+@model List<FolderTreeNode>
+
+@if (Model != null && Model.Any())
+{
+    @await Html.PartialAsync("_FolderTree", Model, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = ViewData["SelectedFolder"] })
+}
+else
+{
+    <div class="folder-tree-empty">
+        <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
+        <span class="text-muted">@Localizer["NoFoldersAvailable"]</span>
+    </div>
+}

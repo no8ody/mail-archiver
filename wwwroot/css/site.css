@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --primary-color: #3498db;
   --secondary-color: #2c3e50;
   --success-color: #2ecc71;
@@ -772,11 +772,20 @@ body {
 }
 
 /* Folder Tree Panel Styles */
+.folder-tree-unavailable {
+  display: none !important;
+}
+
 .folder-tree-panel {
   background-color: #fff;
   border: 1px solid #dee2e6;
   border-radius: 0.375rem;
   overflow: hidden;
+}
+
+.folder-tree-column,
+.email-results-column {
+  transition: flex-basis 0.2s ease, max-width 0.2s ease, width 0.2s ease;
 }
 
 .folder-tree-header {
@@ -786,6 +795,67 @@ body {
   font-weight: 600;
   font-size: 0.9rem;
   color: #495057;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  user-select: none;
+}
+
+.folder-tree-header[role="button"] {
+  cursor: pointer;
+}
+
+.folder-tree-header:focus-visible {
+  outline: 2px solid rgba(13, 110, 253, 0.35);
+  outline-offset: -2px;
+}
+
+.folder-tree-header-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.folder-tree-header-icon,
+.folder-tree-header-chevron {
+  flex-shrink: 0;
+}
+
+.folder-tree-header-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-tree-header-chevron {
+  transition: transform 0.15s ease-in-out;
+}
+
+.folder-tree-collapse-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-tree-panel.collapsed .folder-tree-content {
+  display: none;
+}
+
+.folder-tree-panel.collapsed .folder-tree-header {
+  padding: 0.75rem 0.5rem;
+  justify-content: center;
+  border-bottom: none;
+}
+
+.folder-tree-panel.collapsed .folder-tree-header-content {
+  justify-content: center;
+}
+
+.folder-tree-panel.collapsed .folder-tree-header-label,
+.folder-tree-panel.collapsed .folder-tree-header-chevron {
+  display: none;
 }
 
 .folder-tree-content {
@@ -895,6 +965,10 @@ body {
     display: block !important;
   }
 
+  .folder-tree-collapse-toggle {
+    display: none !important;
+  }
+
   .offcanvas .folder-tree-content {
     max-height: none;
   }
@@ -903,6 +977,29 @@ body {
 @media (min-width: 992px) {
   .folder-tree-mobile-toggle {
     display: none !important;
+  }
+
+  .folder-tree-column.collapsed-col {
+    flex: 0 0 0;
+    max-width: 0;
+    width: 0;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .folder-tree-column.collapsed-col .folder-tree-panel {
+    border: none;
+  }
+
+  .folder-tree-column.collapsed-col .folder-tree-header {
+    display: none;
+  }
+
+  .email-results-column.has-folder-tree.expanded-col {
+    flex: 0 0 100%;
+    max-width: 100%;
+    width: 100%;
   }
 }
 

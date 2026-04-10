@@ -2480,4 +2480,10 @@
   <data name="SyncJobRateLimited" xml:space="preserve">
     <value>Szinkronizáció felfüggesztve a sávszélességi korláton miatt. Automatikusan folytatódik.</value>
   </data>
+  <data name="ToggleFolderTree" xml:space="preserve">
+    <value>Kattintson a mappafa kibontásához/összecsukásához</value>
+  </data>
+  <data name="NoFoldersAvailable" xml:space="preserve">
+    <value>Nincsenek elérhető mappák</value>
+  </data>
 </root>

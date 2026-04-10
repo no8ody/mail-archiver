@@ -2489,4 +2489,10 @@
   <data name="SyncJobRateLimited" xml:space="preserve">
     <value>Sync pausiert wegen Bandbreiten-Limit. Wird automatisch fortgesetzt.</value>
   </data>
+  <data name="ToggleFolderTree" xml:space="preserve">
+    <value>Klicken zum Ein-/Ausklappen des Ordnerbaums</value>
+  </data>
+  <data name="NoFoldersAvailable" xml:space="preserve">
+    <value>Keine Ordner verfügbar</value>
+  </data>
 </root>

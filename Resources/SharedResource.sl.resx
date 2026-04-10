@@ -2488,4 +2488,10 @@
   <data name="SyncJobRateLimited" xml:space="preserve">
     <value>Sinkronizacija ustavljena zaradi omejitve pasovne širine. Bodo jo avtomatsko nadaljevali.</value>
   </data>
+  <data name="ToggleFolderTree" xml:space="preserve">
+    <value>Kliknite za razširitev/strnitev drevesa map</value>
+  </data>
+  <data name="NoFoldersAvailable" xml:space="preserve">
+    <value>Ni razpoložljivih map</value>
+  </data>
 </root>

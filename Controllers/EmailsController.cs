@@ -2000,6 +2000,43 @@ namespace MailArchiver.Controllers
             });
         }
 
+        private async Task<List<int>?> GetAllowedAccountIdsForCurrentUserAsync()
+        {
+            var authService = HttpContext.RequestServices.GetService<MailArchiver.Services.IAuthenticationService>();
+            var userService = HttpContext.RequestServices.GetService<IUserService>();
+
+            if (authService == null || userService == null || authService.IsCurrentUserAdmin(HttpContext))
+            {
+                return null;
+            }
+
+            var username = authService.GetCurrentUserDisplayName(HttpContext);
+            var user = await userService.GetUserByUsernameAsync(username);
+            if (user == null)
+            {
+                _logger.LogWarning("User {Username} not found in database", username);
+                return new List<int>();
+            }
+
+            var userAccounts = await userService.GetUserMailAccountsAsync(user.Id);
+            return userAccounts.Select(a => a.Id).ToList();
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetFolderTree(int accountId, string? selectedFolder = null)
+        {
+            if (accountId <= 0)
+            {
+                ViewData["SelectedFolder"] = selectedFolder;
+                return PartialView("_FolderTreeContent", new List<FolderTreeNode>());
+            }
+
+            var allowedAccountIds = await GetAllowedAccountIdsForCurrentUserAsync();
+            var folderTree = await BuildFolderTreeForAccountAsync(accountId, allowedAccountIds);
+            ViewData["SelectedFolder"] = selectedFolder;
+            return PartialView("_FolderTreeContent", folderTree);
+        }
+
         [HttpGet]
         public async Task<JsonResult> GetFolders(int accountId)
         {
@@ -2013,6 +2050,13 @@ namespace MailArchiver.Controllers
 
             try
             {
+                var allowedAccountIds = await GetAllowedAccountIdsForCurrentUserAsync();
+                if (allowedAccountIds != null && !allowedAccountIds.Contains(accountId))
+                {
+                    _logger.LogWarning("User attempted to access folders for account {AccountId} which is not in their allowed accounts list", accountId);
+                    return Json(new List<string>());
+                }
+
                 // Get the target account to check provider type
                 var targetAccount = await _context.MailAccounts.FindAsync(accountId);
                 if (targetAccount == null)

@@ -1,4 +1,4 @@
-@using Microsoft.AspNetCore.Http.Extensions
+﻿@using Microsoft.AspNetCore.Http.Extensions
 @using MailArchiver.Services
 @using MailArchiver.Models.ViewModels
 @inject MailArchiver.Services.IAuthenticationService AuthService
@@ -15,12 +15,9 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="h3">@Localizer["EmailArchive"]</h1>
-        @if (Model.SelectedAccountId.HasValue)
-        {
-            <button type="button" class="btn btn-outline-secondary folder-tree-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
-                <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
-            </button>
-        }
+        <button type="button" id="folderTreeMobileToggle" class="btn btn-outline-secondary folder-tree-mobile-toggle @(Model.SelectedAccountId.HasValue ? "" : "folder-tree-unavailable")" data-bs-toggle="offcanvas" data-bs-target="#folderTreeOffcanvas">
+            <i class="bi bi-folder"></i> <span>@Localizer["Folders"]</span>
+        </button>
     </div>
 
     @* Active Jobs Alert *@
@@ -104,6 +101,9 @@
                                     <label class="form-check-label small" for="disableSelectionModeToggle">@Localizer["Disable"] @Localizer["SelectionMode"]</label>
                                     <input type="hidden" id="userTimezone" name="UserTimezone" value="" />
                                     <input type="hidden" id="pageSizeHidden" name="PageSize" value="@Model.PageSize" />
+                                    <input type="hidden" id="pageNumberHidden" name="PageNumber" value="@Model.PageNumber" />
+                                    <input type="hidden" id="sortByHidden" name="SortBy" value="@Model.SortBy" />
+                                    <input type="hidden" id="sortOrderHidden" name="SortOrder" value="@Model.SortOrder" />
                                 </div>
                             </div>
                         </div>
@@ -193,32 +193,19 @@
     </div>
 </div>
 
-@if (Model.SelectedAccountId.HasValue)
-{
-    <div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
-        <div class="offcanvas-header">
-            <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
-                <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
-            </h5>
-            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-        </div>
-        <div class="offcanvas-body p-0">
-            <div class="folder-tree-content" id="folderTreeContentMobile">
-                @if (folderTree.Any())
-                {
-                    @await Html.PartialAsync("_FolderTree", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
-                }
-                else
-                {
-                    <div class="folder-tree-empty">
-                        <i class="bi bi-folder2-open d-block mb-2" style="font-size: 1.5rem;"></i>
-                        <span class="text-muted">@Localizer["NoFolders"]</span>
-                    </div>
-                }
-            </div>
+<div class="offcanvas offcanvas-start folder-tree-offcanvas" tabindex="-1" id="folderTreeOffcanvas" aria-labelledby="folderTreeOffcanvasLabel">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="folderTreeOffcanvasLabel">
+            <i class="bi bi-folder me-2"></i>@Localizer["Folders"]
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body p-0">
+        <div class="folder-tree-content" id="folderTreeContentMobile">
+            @await Html.PartialAsync("_FolderTreeContent", folderTree, new ViewDataDictionary(ViewData) { ["SelectedFolder"] = Model.SelectedFolder })
         </div>
     </div>
-}
+</div>
     </div>
 
 @section Scripts {
@@ -231,17 +218,333 @@
                 timezoneInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
             }
 
-            // Auto-submit form when page size changes
-            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            const searchForm = document.getElementById('searchForm');
+            const accountSelect = document.getElementById('accountSelect');
+            const disableSelectionModeToggle = document.getElementById('disableSelectionModeToggle');
             const pageSizeHidden = document.getElementById('pageSizeHidden');
-            if (pageSizeSelect && pageSizeHidden && pageSizeSelect.dataset.listenerInitialized !== 'true') {
-                pageSizeSelect.dataset.listenerInitialized = 'true';
-                pageSizeSelect.addEventListener('change', function() {
-                    console.log("Page size changed to:", this.value);
-                    // Sync hidden field
-                    pageSizeHidden.value = this.value;
-                    searchForm.submit();
+            const pageNumberHidden = document.getElementById('pageNumberHidden');
+            const sortByHidden = document.getElementById('sortByHidden');
+            const sortOrderHidden = document.getElementById('sortOrderHidden');
+            const folderTreeColumn = document.getElementById('folderTreeColumn');
+            const folderTreePanel = document.getElementById('folderTreePanel');
+            const folderTreeHeader = document.getElementById('folderTreeHeader');
+            const folderTreeToggleBtn = document.getElementById('folderTreeToggleBtn');
+            const folderTreeMobileToggle = document.getElementById('folderTreeMobileToggle');
+            const folderTreeContent = document.getElementById('folderTreeContent');
+            const folderTreeContentMobile = document.getElementById('folderTreeContentMobile');
+            const emailsResultsColumn = document.getElementById('emailsResultsColumn');
+            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            let isEmailsIndexRefreshInFlight = false;
+
+            function setFolderTreeAvailability(isAvailable) {
+                if (folderTreeColumn) {
+                    folderTreeColumn.classList.toggle('folder-tree-unavailable', !isAvailable);
+                    folderTreeColumn.dataset.accountSelected = isAvailable ? 'true' : 'false';
+                    if (!isAvailable) {
+                        folderTreeColumn.classList.remove('collapsed-col');
+                    }
+                }
+
+                if (folderTreeMobileToggle) {
+                    folderTreeMobileToggle.classList.toggle('folder-tree-unavailable', !isAvailable);
+                }
+
+                if (folderTreeToggleBtn) {
+                    folderTreeToggleBtn.classList.toggle('folder-tree-unavailable', !isAvailable);
+                    if (!isAvailable) {
+                        folderTreeToggleBtn.style.display = 'none';
+                    }
+                }
+
+                if (emailsResultsColumn) {
+                    emailsResultsColumn.classList.toggle('has-folder-tree', isAvailable);
+                    emailsResultsColumn.classList.toggle('col-lg-10', isAvailable);
+                    if (!isAvailable) {
+                        emailsResultsColumn.classList.remove('expanded-col');
+                    }
+                }
+            }
+
+            function initializeFolderTreePanel() {
+                const FOLDER_TREE_COLLAPSED_KEY = 'folderTreeCollapsed';
+
+                function isFolderTreeCollapsed() {
+                    try {
+                        return localStorage.getItem(FOLDER_TREE_COLLAPSED_KEY) === 'true';
+                    } catch (e) {
+                        return false;
+                    }
+                }
+
+                function saveFolderTreeState(collapsed) {
+                    try {
+                        localStorage.setItem(FOLDER_TREE_COLLAPSED_KEY, collapsed.toString());
+                    } catch (e) {
+                    }
+                }
+
+                function updateFolderTreeState(collapsed) {
+                    if (folderTreePanel) {
+                        folderTreePanel.classList.toggle('collapsed', collapsed);
+                    }
+
+                    if (folderTreeColumn) {
+                        folderTreeColumn.classList.toggle('collapsed-col', collapsed);
+                    }
+
+                    if (emailsResultsColumn) {
+                        emailsResultsColumn.classList.toggle('expanded-col', collapsed);
+                    }
+
+                    if (folderTreeHeader) {
+                        folderTreeHeader.setAttribute('aria-expanded', (!collapsed).toString());
+                    }
+
+                    if (folderTreeToggleBtn) {
+                        folderTreeToggleBtn.style.display = collapsed ? 'inline-flex' : 'none';
+                        folderTreeToggleBtn.setAttribute('aria-expanded', (!collapsed).toString());
+                    }
+                }
+
+                function toggleFolderTree(forceCollapsed) {
+                    const collapsed = typeof forceCollapsed === 'boolean'
+                        ? forceCollapsed
+                        : !(folderTreePanel && folderTreePanel.classList.contains('collapsed'));
+
+                    updateFolderTreeState(collapsed);
+                    saveFolderTreeState(collapsed);
+                }
+
+                if (!folderTreePanel || !folderTreeColumn || !emailsResultsColumn) {
+                    if (folderTreeToggleBtn) {
+                        folderTreeToggleBtn.style.display = 'none';
+                    }
+                    return;
+                }
+
+                const isAvailable = folderTreeColumn.dataset.accountSelected === 'true' && !folderTreeColumn.classList.contains('folder-tree-unavailable');
+                if (!isAvailable) {
+                    folderTreePanel.classList.remove('collapsed');
+                    folderTreeColumn.classList.remove('collapsed-col');
+                    emailsResultsColumn.classList.remove('expanded-col');
+                    if (folderTreeHeader) {
+                        folderTreeHeader.setAttribute('aria-expanded', 'false');
+                    }
+                    if (folderTreeToggleBtn) {
+                        folderTreeToggleBtn.style.display = 'none';
+                        folderTreeToggleBtn.setAttribute('aria-expanded', 'false');
+                    }
+                    return;
+                }
+
+                updateFolderTreeState(isFolderTreeCollapsed());
+
+                if (folderTreeHeader && folderTreeHeader.dataset.listenerInitialized !== 'true') {
+                    folderTreeHeader.dataset.listenerInitialized = 'true';
+
+                    folderTreeHeader.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        toggleFolderTree();
+                    });
+
+                    folderTreeHeader.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleFolderTree();
+                        }
+                    });
+                }
+
+                if (folderTreeToggleBtn && folderTreeToggleBtn.dataset.listenerInitialized !== 'true') {
+                    folderTreeToggleBtn.dataset.listenerInitialized = 'true';
+                    folderTreeToggleBtn.addEventListener('click', function() {
+                        toggleFolderTree(false);
+                    });
+                }
+            }
+
+            function setHiddenSearchState(name, value) {
+                const fieldMap = {
+                    PageSize: pageSizeHidden,
+                    PageNumber: pageNumberHidden,
+                    SortBy: sortByHidden,
+                    SortOrder: sortOrderHidden
+                };
+
+                const field = fieldMap[name];
+                if (field) {
+                    field.value = value || '';
+                }
+            }
+
+            function updateSelectFromResponse(currentSelect, replacementSelect) {
+                if (!currentSelect || !replacementSelect) {
+                    return;
+                }
+
+                currentSelect.innerHTML = replacementSelect.innerHTML;
+                currentSelect.value = replacementSelect.value;
+            }
+
+            function replaceElementFromResponse(elementId, parsedDocument) {
+                const currentElement = document.getElementById(elementId);
+                const replacementElement = parsedDocument.getElementById(elementId);
+                if (currentElement && replacementElement) {
+                    currentElement.replaceWith(replacementElement);
+                }
+            }
+
+            function syncSearchUiFromResponse(parsedDocument) {
+                const replacementForm = parsedDocument.getElementById('searchForm');
+                if (searchForm && replacementForm) {
+                    ['SearchTerm', 'FromDate', 'ToDate', 'UserTimezone', 'PageSize', 'PageNumber', 'SortBy', 'SortOrder'].forEach(function(fieldName) {
+                        const currentField = searchForm.elements[fieldName];
+                        const replacementField = replacementForm.elements[fieldName];
+
+                        if (!currentField || !replacementField) {
+                            return;
+                        }
+
+                        if (currentField.type === 'checkbox') {
+                            currentField.checked = replacementField.checked;
+                        } else {
+                            currentField.value = replacementField.value;
+                        }
+                    });
+
+                    const replacementDisableSelectionMode = replacementForm.elements['DisableSelectionMode'];
+                    if (disableSelectionModeToggle && replacementDisableSelectionMode) {
+                        disableSelectionModeToggle.checked = replacementDisableSelectionMode.checked;
+                    }
+
+                    updateSelectFromResponse(accountSelect, replacementForm.querySelector('#accountSelect'));
+                }
+
+                replaceElementFromResponse('folderFilterContainer', parsedDocument);
+                replaceElementFromResponse('directionFilterContainer', parsedDocument);
+                replaceElementFromResponse('folderTreeMobileToggle', parsedDocument);
+
+                const currentFolderTreeMobileContent = document.getElementById('folderTreeContentMobile');
+                const replacementFolderTreeMobileContent = parsedDocument.getElementById('folderTreeContentMobile');
+                if (currentFolderTreeMobileContent && replacementFolderTreeMobileContent) {
+                    currentFolderTreeMobileContent.innerHTML = replacementFolderTreeMobileContent.innerHTML;
+                }
+            }
+
+            async function refreshEmailsIndex(url, options) {
+                const normalizedOptions = Object.assign({ pushState: true, replaceState: false }, options || {});
+                const targetUrl = url instanceof URL ? url : new URL(url, window.location.origin);
+
+                if (isEmailsIndexRefreshInFlight) {
+                    return false;
+                }
+
+                isEmailsIndexRefreshInFlight = true;
+
+                try {
+                    const response = await fetch(targetUrl.toString(), {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-MailArchiver-Fragment': 'emailsLiveContent',
+                            'Cache-Control': 'no-cache, no-store, max-age=0',
+                            'Pragma': 'no-cache'
+                        },
+                        cache: 'no-store',
+                        credentials: 'same-origin'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to refresh emails index');
+                    }
+
+                    const html = await response.text();
+                    const parsedDocument = new DOMParser().parseFromString(html, 'text/html');
+                    const replacementLiveContent = parsedDocument.getElementById('emailsLiveContent');
+                    const currentLiveContent = document.getElementById('emailsLiveContent');
+
+                    if (!replacementLiveContent || !currentLiveContent) {
+                        throw new Error('Could not find refreshed email results content');
+                    }
+
+                    syncSearchUiFromResponse(parsedDocument);
+                    currentLiveContent.replaceWith(replacementLiveContent);
+
+                    if (window.mailArchiver && typeof window.mailArchiver.initializeDynamicUi === 'function') {
+                        window.mailArchiver.initializeDynamicUi(replacementLiveContent);
+                    }
+
+                    if (window.mailArchiver && typeof window.mailArchiver.initializeAutoRefresh === 'function') {
+                        window.mailArchiver.initializeAutoRefresh(replacementLiveContent);
+                    }
+
+                    if (normalizedOptions.pushState) {
+                        window.history.pushState({ emailsIndexUrl: targetUrl.toString() }, '', targetUrl.toString());
+                    } else if (normalizedOptions.replaceState) {
+                        window.history.replaceState({ emailsIndexUrl: targetUrl.toString() }, '', targetUrl.toString());
+                    }
+
+                    document.dispatchEvent(new CustomEvent('mailarchiver:fragment-refreshed', {
+                        detail: {
+                            containerId: 'emailsLiveContent',
+                            element: replacementLiveContent,
+                            manual: true
+                        }
+                    }));
+
+                    return true;
+                } catch (error) {
+                    console.error('Error refreshing emails index:', error);
+                    window.location.href = targetUrl.toString();
+                    return false;
+                } finally {
+                    isEmailsIndexRefreshInFlight = false;
+                }
+            }
+
+            function applyCurrentSearchFormState(url) {
+                if (!searchForm) {
+                    return url;
+                }
+
+                const formData = new FormData(searchForm);
+                const scalarFields = ['SearchTerm', 'FromDate', 'ToDate', 'SelectedAccountId', 'SelectedFolder', 'IsOutgoing', 'UserTimezone', 'PageSize', 'PageNumber', 'SortBy', 'SortOrder'];
+
+                scalarFields.forEach(function(fieldName) {
+                    const value = formData.get(fieldName);
+                    if (typeof value === 'string' && value !== '') {
+                        url.searchParams.set(fieldName, value);
+                    } else {
+                        url.searchParams.delete(fieldName);
+                    }
                 });
+
+                if (formData.get('DisableSelectionMode') === 'true') {
+                    url.searchParams.set('DisableSelectionMode', 'true');
+                } else {
+                    url.searchParams.delete('DisableSelectionMode');
+                }
+
+                return url;
+            }
+
+            function buildSearchUrl(overrides) {
+                const targetUrl = applyCurrentSearchFormState(new URL('@Url.Action("Index", "Emails")', window.location.origin));
+                const effectiveOverrides = overrides || {};
+
+                Object.entries(effectiveOverrides).forEach(function(entry) {
+                    const key = entry[0];
+                    const value = entry[1];
+
+                    if (value === null || value === undefined || value === '') {
+                        targetUrl.searchParams.delete(key);
+                    } else {
+                        targetUrl.searchParams.set(key, value);
+                    }
+
+                    setHiddenSearchState(key, value);
+                });
+
+                return targetUrl;
             }
 
             function initializeFolderTreeHandlers() {
@@ -257,12 +560,18 @@
                         }
 
                         const folder = this.dataset.folder;
-                        if (!folder) return;
+                        if (!folder) {
+                            return;
+                        }
 
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('SelectedFolder', folder);
-                        url.searchParams.set('PageNumber', '1');
-                        window.location.href = url.toString();
+                        const currentAccountId = accountSelect ? accountSelect.value : '';
+                        const targetUrl = buildSearchUrl({
+                            SelectedAccountId: currentAccountId || '',
+                            SelectedFolder: folder,
+                            PageNumber: '1'
+                        });
+
+                        refreshEmailsIndex(targetUrl);
                     });
                 });
 
@@ -285,71 +594,134 @@
                 });
             }
 
-            initializeFolderTreeHandlers();
+            function initializeFolderAndDirectionFiltering() {
+                const currentAccountSelect = document.getElementById('accountSelect');
+                const currentFolderContainer = document.getElementById('folderFilterContainer');
+                const currentFolderSelect = document.getElementById('folderSelect');
+                const currentDirectionContainer = document.getElementById('directionFilterContainer');
 
-            // Load folders dynamically when account selection changes
-            const accountSelect = document.getElementById('accountSelect');
-            const folderContainer = document.getElementById('folderFilterContainer');
-            const folderSelect = document.getElementById('folderSelect');
-            const directionContainer = document.getElementById('directionFilterContainer');
-            
-            if (accountSelect && folderContainer && folderSelect && directionContainer) {
-                // Initialize on page load
-                const currentAccountId = accountSelect.value;
-                if (currentAccountId && currentAccountId !== '') {
-                    // Account is already selected, ensure proper classes
-                    directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
-                } else {
-                    // No account selected, make direction field wider
-                    directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
-                }
-                
-                if (accountSelect.dataset.listenerInitialized !== 'true') {
-                    accountSelect.dataset.listenerInitialized = 'true';
-                    accountSelect.addEventListener('change', function() {
-                    const accountId = this.value;
-                    console.log("Account selection changed to:", accountId);
-                    
-                    if (!accountId || accountId === '') {
-                        // Hide folder dropdown if no account selected
-                        folderContainer.style.display = 'none';
-                        folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
-                        
-                        // Make direction field wider
-                        directionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
+                if (currentAccountSelect && currentFolderContainer && currentFolderSelect && currentDirectionContainer) {
+                    const currentAccountId = currentAccountSelect.value;
+                    if (currentAccountId && currentAccountId !== '') {
+                        currentDirectionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
+                        setFolderTreeAvailability(true);
                     } else {
-                        // Load folders for selected account via AJAX
-                        fetch('@Url.Action("GetFolders", "Emails")?accountId=' + accountId)
-                            .then(response => response.json())
-                            .then(folders => {
-                                console.log("Loaded folders:", folders);
-                                
-                                // Clear existing options
-                                folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
-                                
-                                // Add folder options
-                                folders.forEach(function(folder) {
-                                    const option = document.createElement('option');
-                                    option.value = folder;
-                                    option.textContent = folder;
-                                    folderSelect.appendChild(option);
-                                });
-                                
-                                // Show folder container and make direction field narrower
-                                folderContainer.style.display = '';
-                                directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
-                            })
-                            .catch(error => {
-                                console.error('Error loading folders:', error);
-                                // Show container anyway with just "All Folders"
-                                folderSelect.innerHTML = '<option value="">@Localizer["AllFolders"]</option>';
-                                folderContainer.style.display = '';
-                                directionContainer.className = 'col-12 col-md-6 col-lg-1 mb-3';
-                            });
+                        currentDirectionContainer.className = 'col-12 col-md-6 col-lg-3 mb-3';
+                        setFolderTreeAvailability(false);
                     }
+
+                    if (currentAccountSelect.dataset.listenerInitialized !== 'true') {
+                        currentAccountSelect.dataset.listenerInitialized = 'true';
+                        currentAccountSelect.addEventListener('change', function() {
+                            if (currentFolderSelect) {
+                                currentFolderSelect.value = '';
+                            }
+
+                            const targetUrl = buildSearchUrl({
+                                SelectedAccountId: this.value || '',
+                                SelectedFolder: '',
+                                PageNumber: '1'
+                            });
+
+                            refreshEmailsIndex(targetUrl);
+                        });
+                    }
+
+                    if (currentFolderSelect.dataset.listenerInitialized !== 'true') {
+                        currentFolderSelect.dataset.listenerInitialized = 'true';
+                        currentFolderSelect.addEventListener('change', function() {
+                            const targetUrl = buildSearchUrl({
+                                SelectedFolder: this.value || '',
+                                PageNumber: '1'
+                            });
+
+                            refreshEmailsIndex(targetUrl);
+                        });
+                    }
+                }
+            }
+
+            function initializeSearchNavigation() {
+                const currentPageSizeSelect = document.getElementById('pageSizeSelect');
+                if (currentPageSizeSelect && pageSizeHidden && currentPageSizeSelect.dataset.listenerInitialized !== 'true') {
+                    currentPageSizeSelect.dataset.listenerInitialized = 'true';
+                    currentPageSizeSelect.addEventListener('change', function() {
+                        const targetUrl = buildSearchUrl({
+                            PageSize: this.value,
+                            PageNumber: '1'
+                        });
+
+                        refreshEmailsIndex(targetUrl);
+                    });
+                }
+
+                if (searchForm && searchForm.dataset.listenerInitialized !== 'true') {
+                    searchForm.dataset.listenerInitialized = 'true';
+                    searchForm.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const targetUrl = buildSearchUrl({ PageNumber: pageNumberHidden ? pageNumberHidden.value || '1' : '1' });
+                        refreshEmailsIndex(targetUrl);
+                    });
+                }
+
+                if (disableSelectionModeToggle && disableSelectionModeToggle.dataset.listenerInitialized !== 'true') {
+                    disableSelectionModeToggle.dataset.listenerInitialized = 'true';
+                    disableSelectionModeToggle.addEventListener('change', function() {
+                        clearStoredSelections();
+                        const targetUrl = buildSearchUrl({ PageNumber: '1' });
+                        refreshEmailsIndex(targetUrl);
+                    });
+                }
+
+                if (document.body.dataset.emailsIndexNavigationInitialized !== 'true') {
+                    document.body.dataset.emailsIndexNavigationInitialized = 'true';
+
+                    document.addEventListener('click', function(event) {
+                        const paginationLink = event.target.closest('#emailsLiveContent .page-link[href]');
+                        if (paginationLink) {
+                            event.preventDefault();
+                            refreshEmailsIndex(new URL(paginationLink.href, window.location.origin));
+                            return;
+                        }
+
+                        const sortTrigger = event.target.closest('#emailsLiveContent .email-search-sort-trigger[data-email-search-url]');
+                        if (sortTrigger) {
+                            event.preventDefault();
+                            const sortBy = sortTrigger.dataset.sortBy || '';
+                            const sortOrder = sortTrigger.dataset.sortOrder || '';
+                            if (sortBy) {
+                                setHiddenSearchState('SortBy', sortBy);
+                            }
+                            if (sortOrder) {
+                                setHiddenSearchState('SortOrder', sortOrder);
+                            }
+                            setHiddenSearchState('PageNumber', '1');
+                            refreshEmailsIndex(new URL(sortTrigger.dataset.emailSearchUrl, window.location.origin));
+                        }
+                    });
+
+                    document.addEventListener('keydown', function(event) {
+                        const sortTrigger = event.target.closest('#emailsLiveContent .email-search-sort-trigger[data-email-search-url]');
+                        if (!sortTrigger) {
+                            return;
+                        }
+
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            sortTrigger.click();
+                        }
+                    });
+
+                    window.addEventListener('popstate', function() {
+                        refreshEmailsIndex(new URL(window.location.href), { pushState: false, replaceState: true });
                     });
                 }
             }
+
+            initializeFolderTreePanel();
+            initializeFolderTreeHandlers();
+            initializeFolderAndDirectionFiltering();
+            initializeSearchNavigation();
 
             // Configuration from ViewBag
             const asyncThreshold = @ViewBag.AsyncThreshold;
@@ -360,8 +732,6 @@
             const STORAGE_KEY = 'emailSelection';
             
             // Get elements
-            const disableSelectionModeToggle = document.getElementById('disableSelectionModeToggle');
-            const searchForm = document.getElementById('searchForm');
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
             const selectAllBtn = document.getElementById('selectAllBtn');
             const deselectAllBtn = document.getElementById('deselectAllBtn');
@@ -437,16 +807,6 @@
                         selectAllBtn.className = 'btn btn-sm btn-outline-primary';
                     }
                 }
-            }
-
-            // Toggle selection mode using form submit
-            if (disableSelectionModeToggle && disableSelectionModeToggle.dataset.listenerInitialized !== 'true') {
-                disableSelectionModeToggle.dataset.listenerInitialized = 'true';
-                disableSelectionModeToggle.addEventListener('change', function() {
-                    console.log("Selection mode disabled: " + this.checked);
-                    clearStoredSelections();
-                    searchForm.submit();
-                });
             }
 
             // Update selection counter and mode indicator

@@ -11,7 +11,5 @@ namespace MailArchiver.Models.ViewModels
         public int Level { get; set; }
         public bool HasChildren => Children != null && Children.Any();
         public List<FolderTreeNode> Children { get; set; } = new List<FolderTreeNode>();
-
-        internal Dictionary<string, FolderTreeNode>? ChildrenMap { get; set; }
     }
 }
