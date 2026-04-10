@@ -1,4 +1,4 @@
-/* Mobile und Tablet - Fix für Checkbox im Suchformular - Selektionsmodus */
+﻿/* Mobile und Tablet - Fix für Checkbox im Suchformular - Selektionsmodus */
 @media (max-width: 991px) {
     #searchForm .d-flex.flex-wrap.gap-2 {
         justify-content: flex-start !important;
@@ -477,21 +477,20 @@
 
 /* Footer Optimierungen */
 .footer {
-    position: fixed;
-    bottom: 0;
+    position: static;
     width: 100%;
-    white-space: nowrap;
-    line-height: 40px;
+    margin-top: auto;
+    white-space: normal;
+    line-height: 1.4;
     background-color: #f8f9fa;
     border-top: 1px solid #dee2e6;
-    padding: 0 15px;
-    z-index: 1020;
+    padding: 0.75rem 15px;
 }
 @media (max-width: 768px) {
     .footer {
         font-size: 0.8rem;
-        line-height: 35px;
-        padding: 0 10px;
+        line-height: 1.4;
+        padding: 0.65rem 10px;
     }
     .footer .d-flex {
         flex-direction: column !important;
