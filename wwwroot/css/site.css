@@ -980,13 +980,26 @@ body {
   }
 
   .folder-tree-column.collapsed-col {
-    flex: 0 0 4.5rem;
-    max-width: 4.5rem;
+    flex: 0 0 0;
+    max-width: 0;
+    width: 0;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .folder-tree-column.collapsed-col .folder-tree-panel {
+    border: none;
+  }
+
+  .folder-tree-column.collapsed-col .folder-tree-header {
+    display: none;
   }
 
   .email-results-column.has-folder-tree.expanded-col {
-    flex: 0 0 calc(100% - 4.5rem);
-    max-width: calc(100% - 4.5rem);
+    flex: 0 0 100%;
+    max-width: 100%;
+    width: 100%;
   }
 }
 
