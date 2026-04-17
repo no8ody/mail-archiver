@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.IO.Compression;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Web;
 using Microsoft.Extensions.Localization;
@@ -37,6 +38,20 @@ namespace MailArchiver.Controllers
         private readonly MailArchiver.Services.IAuthenticationService _authService;
         private readonly IEmailDeletionService? _emailDeletionService;
         private readonly ViewOptions _viewOptions;
+
+        private const string ClearEmailSelectionCookieName = "mailarchiver_clear_email_selection";
+
+        private void QueueEmailSelectionClearCookie()
+        {
+            Response.Cookies.Append(ClearEmailSelectionCookieName, "1", new CookieOptions
+            {
+                HttpOnly = false,
+                IsEssential = true,
+                SameSite = SameSiteMode.Lax,
+                Secure = Request.IsHttps,
+                Path = "/"
+            });
+        }
 
         public EmailsController(
             MailArchiverDbContext context,
@@ -1298,6 +1313,7 @@ namespace MailArchiver.Controllers
                 // Session-Daten löschen
                 HttpContext.Session.Remove("BatchRestoreIds");
                 HttpContext.Session.Remove("BatchRestoreReturnUrl");
+                QueueEmailSelectionClearCookie();
 
                 // Redirect to the return URL if provided, otherwise to the index
                 return Redirect(model.ReturnUrl ?? Url.Action("Index"));
@@ -1618,6 +1634,7 @@ namespace MailArchiver.Controllers
                 HttpContext.Session.Remove("AsyncBatchRestoreReturnUrl");
 
                 TempData["SuccessMessage"] = $"Batch restore job started with {emailIds.Count:N0} emails. Job ID: {jobId}";
+                QueueEmailSelectionClearCookie();
 
                 return RedirectToAction("BatchRestoreStatus", new { jobId });
             }
@@ -2455,6 +2472,7 @@ namespace MailArchiver.Controllers
                 
                 var jobId = _emailDeletionService.QueueJob(job);
                 TempData["SuccessMessage"] = $"Email deletion job started for {ids.Count:N0} emails. Job ID: {jobId}";
+                QueueEmailSelectionClearCookie();
                 
                 return RedirectToAction("EmailDeletionStatus", new { jobId });
             }
@@ -2464,6 +2482,7 @@ namespace MailArchiver.Controllers
             
             var deletedCount = 0;
             var errorCount = 0;
+            var deletedEmailIds = new List<int>();
             
             try
             {
@@ -2490,6 +2509,7 @@ namespace MailArchiver.Controllers
                         _context.ArchivedEmails.Remove(email);
                         await _context.SaveChangesAsync();
                         deletedCount++;
+                        deletedEmailIds.Add(id);
                         
                         _logger.LogInformation("Email with ID {EmailId} successfully deleted by admin", id);
                         
@@ -2517,6 +2537,7 @@ namespace MailArchiver.Controllers
                 if (deletedCount > 0)
                 {
                     TempData["SuccessMessage"] = $"{deletedCount} email(s) successfully deleted.";
+                    TempData["DeletedSelectionIds"] = JsonSerializer.Serialize(deletedEmailIds);
                 }
                 
                 if (errorCount > 0)
@@ -2668,6 +2689,7 @@ namespace MailArchiver.Controllers
                 var jobId = _selectedEmailsExportService.QueueExport(ids, exportFormat, userId);
 
                 TempData["SuccessMessage"] = $"Export job started with {ids.Count:N0} emails in {exportFormat} format. Job ID: {jobId}";
+                QueueEmailSelectionClearCookie();
 
                 return RedirectToAction("SelectedEmailsExportStatus", new { jobId });
             }

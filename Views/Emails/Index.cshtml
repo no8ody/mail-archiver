@@ -730,6 +730,8 @@
             
             // Cross-page selection storage key
             const STORAGE_KEY = 'emailSelection';
+            const CLEAR_SELECTION_COOKIE_NAME = 'mailarchiver_clear_email_selection';
+            const deletedSelectionIdsFromServer = @Html.Raw((TempData["DeletedSelectionIds"] as string) ?? "null");
             
             // Get elements
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
@@ -744,19 +746,70 @@
             console.log("Max selectable emails: " + maxSelectableEmails);
 
             // Cross-page selection management
+            function getSelectionScope() {
+                const currentUrl = new URL(window.location.href);
+                const searchParams = currentUrl.searchParams;
+
+                function getParamValue(name) {
+                    return (searchParams.get(name) || '').trim();
+                }
+
+                return JSON.stringify({
+                    path: currentUrl.pathname,
+                    accountId: getParamValue('SelectedAccountId'),
+                    folder: getParamValue('SelectedFolder'),
+                    searchTerm: getParamValue('SearchTerm'),
+                    fromDate: getParamValue('FromDate'),
+                    toDate: getParamValue('ToDate'),
+                    isOutgoing: getParamValue('IsOutgoing'),
+                    disableSelectionMode: getParamValue('DisableSelectionMode')
+                });
+            }
+
+            function normalizeStoredSelectionState(storedValue) {
+                if (Array.isArray(storedValue)) {
+                    return { ids: [], scope: null };
+                }
+
+                if (!storedValue || typeof storedValue !== 'object' || !Array.isArray(storedValue.ids)) {
+                    return { ids: [], scope: null };
+                }
+
+                return {
+                    ids: storedValue.ids.map(function(id) { return id.toString(); }),
+                    scope: typeof storedValue.scope === 'string' ? storedValue.scope : null
+                };
+            }
+
             function getStoredSelections() {
                 try {
                     const stored = localStorage.getItem(STORAGE_KEY);
-                    return stored ? JSON.parse(stored) : [];
+                    if (!stored) {
+                        return [];
+                    }
+
+                    const parsed = normalizeStoredSelectionState(JSON.parse(stored));
+                    const currentScope = getSelectionScope();
+                    if (parsed.scope !== currentScope) {
+                        localStorage.removeItem(STORAGE_KEY);
+                        return [];
+                    }
+
+                    return parsed.ids;
                 } catch (e) {
                     console.warn('Error reading stored selections:', e);
+                    localStorage.removeItem(STORAGE_KEY);
                     return [];
                 }
             }
 
             function saveStoredSelections(selections) {
                 try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(selections));
+                    const uniqueSelections = [...new Set((selections || []).map(function(id) { return id.toString(); }))];
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                        scope: getSelectionScope(),
+                        ids: uniqueSelections
+                    }));
                 } catch (e) {
                     console.warn('Error saving selections:', e);
                 }
@@ -785,6 +838,46 @@
 
             function clearStoredSelections() {
                 localStorage.removeItem(STORAGE_KEY);
+            }
+
+            function getCookieValue(name) {
+                const cookiePrefix = `${name}=`;
+                const cookies = document.cookie ? document.cookie.split(';') : [];
+                for (let index = 0; index < cookies.length; index++) {
+                    const cookie = cookies[index].trim();
+                    if (cookie.startsWith(cookiePrefix)) {
+                        return cookie.substring(cookiePrefix.length);
+                    }
+                }
+
+                return null;
+            }
+
+            function clearCookie(name) {
+                document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+            }
+
+            function applySelectionResetSignals() {
+                let selectionChanged = false;
+
+                if (getCookieValue(CLEAR_SELECTION_COOKIE_NAME) === '1') {
+                    clearStoredSelections();
+                    clearCookie(CLEAR_SELECTION_COOKIE_NAME);
+                    selectionChanged = true;
+                }
+
+                if (Array.isArray(deletedSelectionIdsFromServer) && deletedSelectionIdsFromServer.length > 0) {
+                    removeFromStoredSelections(deletedSelectionIdsFromServer.map(function(id) { return id.toString(); }));
+                    selectionChanged = true;
+                }
+
+                if (selectionChanged) {
+                    const emailCheckboxes = document.querySelectorAll('.email-select-checkbox');
+                    const storedSelections = getStoredSelections();
+                    emailCheckboxes.forEach(function(checkbox) {
+                        checkbox.checked = storedSelections.includes(checkbox.value);
+                    });
+                }
             }
 
             function getTotalSelectedCount() {
@@ -884,9 +977,11 @@
                 console.log("Found email checkboxes: " + emailCheckboxes.length);
                 console.log("Stored selections: ", storedSelections);
 
+                const effectiveStoredSelections = getStoredSelections();
+
                 // Restore selections for current page
                 emailCheckboxes.forEach(function(checkbox) {
-                    if (storedSelections.includes(checkbox.value)) {
+                    if (effectiveStoredSelections.includes(checkbox.value)) {
                         checkbox.checked = true;
                     }
                     
@@ -1248,6 +1343,8 @@
                 document.body.appendChild(form);
                 form.submit();
             }
+
+                applySelectionResetSignals();
 
                 // Initialize selection handlers when in selection mode
                 @if (Model.ShowSelectionControls) {
