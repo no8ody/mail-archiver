@@ -162,11 +162,6 @@
   color: var(--text-color);
 }
 
-[data-theme="dark"] .email-text-body {
-  background-color: var(--email-text-body-bg);
-  color: var(--text-color);
-}
-
 [data-theme="dark"] a {
   color: #63b3ed;
 }
@@ -283,6 +278,12 @@
   background-color: #f8f9fa !important;
   color: #000000 !important;
   border: 1px solid var(--border-color) !important;
+}
+
+[data-theme="dark"] .border.border-danger.rounded.p-3.bg-light {
+  background-color: var(--alert-danger-bg) !important;
+  color: var(--text-color) !important;
+  border-color: var(--danger-color) !important;
 }
 
 /* Dark Mode für HTML Email Body */

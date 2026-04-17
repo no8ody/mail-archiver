@@ -249,6 +249,25 @@
             childList: true,
             subtree: true
         });
+
+        (function clearArchiveSelectionOutsideArchive() {
+            const emailSelectionStorageKey = 'emailSelection';
+            const clearSelectionCookieName = 'mailarchiver_clear_email_selection';
+            const currentPath = window.location.pathname || '';
+            const isArchivePath = currentPath === '/Emails' || currentPath.startsWith('/Emails/');
+
+            if (isArchivePath) {
+                return;
+            }
+
+            try {
+                localStorage.removeItem(emailSelectionStorageKey);
+            } catch (e) {
+                console.warn('Failed to clear archive selection state:', e);
+            }
+
+            document.cookie = `${clearSelectionCookieName}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+        })();
     </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
