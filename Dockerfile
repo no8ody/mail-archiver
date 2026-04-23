@@ -15,6 +15,12 @@ COPY . .
 RUN dotnet publish "./MailArchiver.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:GitCommitShort=${GIT_COMMIT}
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+
+# Install Kerberos library required by MailKit (libgssapi_krb5.so.2)r
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ARG GIT_COMMIT=unknown
